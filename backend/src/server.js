@@ -40,44 +40,6 @@ async function startServer() {
  * Espera a que Redis esté disponible antes de continuar
  * @returns {Promise} - Resuelve cuando Redis está conectado
  */
-async function waitForRedis() {
-  console.log(' Verificando conexión a Redis...');
-  
-  // Si Redis ya está conectado, continuar inmediatamente
-  if (redisClient && redisClient.status === 'ready') {
-    console.log(' Redis ya está conectado');
-    return Promise.resolve();
-  }
-  
-  // Si no está conectado, esperar el evento 'ready'
-  return new Promise((resolve) => {
-    // Timeout para no esperar indefinidamente
-    const timeout = setTimeout(() => {
-      console.warn(' Tiempo de espera para Redis agotado, continuando sin Redis');
-      resolve();
-    }, 5000); // 5 segundos máximo de espera
-    
-    // Si Redis emite 'ready', resolver la promesa
-    if (redisClient) {
-      redisClient.once('ready', () => {
-        clearTimeout(timeout);
-        console.log(' Redis conectado correctamente');
-        resolve();
-      });
-      
-      // Si hay un error, continuar de todas formas
-      redisClient.once('error', (err) => {
-        clearTimeout(timeout);
-        console.warn(' Error al conectar a Redis:', err.message);
-        resolve(); // Continuar de todas formas
-      });
-    } else {
-      clearTimeout(timeout);
-      console.warn(' Cliente Redis no inicializado');
-      resolve();
-    }
-  });
-}
 
 /**
  * Espera a que Redis esté disponible antes de continuar

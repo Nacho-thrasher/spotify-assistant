@@ -1,0 +1,8 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "backend/Dockerfile"  # Ajusta la ruta según donde esté tu Dockerfile
+
+[deploy]
+startCommand = "docker-compose up"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

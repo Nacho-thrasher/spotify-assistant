@@ -11,7 +11,7 @@ RUN npm install
 # Variables de entorno por defecto
 ENV PORT=8080
 ENV NODE_ENV=production
-ENV REDIS_URL=redis://redis:6379
+# Las variables de Redis se configuran en Railway
 
 # Puerto expuesto
 EXPOSE 8080

@@ -1,12 +1,23 @@
-FROM node:20-alpine
+FROM node:20-alpine as frontend
 
+# Construir el frontend
+WORKDIR /frontend
+COPY frontend/ .
+RUN npm install
+RUN npm run build
+
+# Configurar el backend
+FROM node:20-alpine
 WORKDIR /app
 
 # Copiar todo el backend
 COPY backend/ .
 
-# Instalar dependencias
+# Instalar dependencias del backend
 RUN npm install
+
+# Copiar build de frontend a carpeta pública en el backend
+COPY --from=frontend /frontend/build /app/public
 
 # Variables de entorno por defecto
 ENV PORT=8080

@@ -2,19 +2,23 @@ FROM node:20-alpine as frontend
 
 # Construir el frontend
 WORKDIR /frontend
+COPY frontend/package*.json ./
+# Instalar dependencias con flags para usar menos memoria
+RUN npm install --no-audit --no-fund --prefer-offline --legacy-peer-deps
+# Ahora copiar el resto del código y construir
 COPY frontend/ .
-RUN npm install
 RUN npm run build
 
 # Configurar el backend
 FROM node:20-alpine
 WORKDIR /app
 
-# Copiar todo el backend
-COPY backend/ .
+# Instalar dependencias del backend primero (para aprovechar la caché)
+COPY backend/package*.json ./
+RUN npm install --no-audit --no-fund --prefer-offline --legacy-peer-deps
 
-# Instalar dependencias del backend
-RUN npm install
+# Copiar el resto del código del backend
+COPY backend/ .
 
 # Copiar build de frontend a carpeta pública en el backend
 COPY --from=frontend /frontend/build /app/public

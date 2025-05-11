@@ -1,0 +1,29 @@
+# Dependencias
+node_modules
+npm-debug.log
+.npm
+
+# Entorno
+.env
+.env.*
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Archivos de desarrollo
+.git
+.gitignore
+README.md
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# Archivos temporales
+tmp
+temp

@@ -1,0 +1,318 @@
+/**
+ * Servicio de integración con OpenAI para procesar mensajes del usuario
+ */
+const OpenAI = require('openai');
+
+// Inicializar cliente de OpenAI si hay una clave API disponible
+let openai = null;
+if (process.env.OPENAI_API_KEY) {
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY
+  });
+}
+
+/**
+ * Sistema de instrucciones base para el modelo
+ */
+const baseSystemPrompt = `
+Eres un asistente musical de Spotify útil y amigable.
+Tu objetivo es ayudar al usuario a controlar Spotify mediante comandos en lenguaje natural.
+
+CAPACIDADES:
+- Reproducir música (artistas, canciones, géneros, playlists)
+- Pausar/reanudar reproducción
+- Saltar a canción anterior/siguiente
+- Ajustar volumen
+- Buscar música
+- Crear y modificar playlists
+- Proporcionar información sobre artistas, canciones, etc.
+
+INSTRUCCIONES:
+1. Responde de forma concisa y conversacional.
+2. Identifica la intención del usuario y los parámetros necesarios.
+3. Proporciona respuestas amigables y centradas en música.
+4. Si no puedes realizar una acción, explica amablemente por qué.
+
+FORMATO DE RESPUESTA:
+Debes devolver un objeto JSON con los siguientes campos:
+- action: la acción a realizar (play, pause, next, previous, volume, search, etc.)
+- parameters: objeto con parámetros relevantes para la acción
+- message: mensaje conversacional para responder al usuario
+
+Ejemplos de acciones:
+- "play": reproducir música (requiere query o trackId)
+- "pause": pausar reproducción
+- "resume": reanudar reproducción
+- "next": siguiente canción
+- "previous": canción anterior
+- "volume": ajustar volumen (requiere level: 0-100)
+- "search": buscar música (requiere query)
+- "queue": añadir canción a la cola (requiere query)
+- "info": proporcionar información (usa esta acción cuando solo quieras responder sin realizar una acción en Spotify)
+
+Ejemplos de parámetros:
+- query: "rock de los 80s", "canciones de Coldplay"
+- trackId: "spotify:track:123456"
+- playlistId: "spotify:playlist:123456"
+- level: 60 (para volumen)
+`;
+
+/**
+ * Función para procesar un mensaje del usuario utilizando OpenAI
+ * @param {string} message - Mensaje del usuario
+ * @returns {Object} - Acción a realizar y mensaje de respuesta
+ */
+async function processMessage(message) {
+  // Forzar uso de procesamiento simple para evitar errores de cuota
+  console.log('Usando procesamiento simple (sin OpenAI) para evitar errores de cuota');
+  return processMessageSimple(message);
+
+  try {
+    // Enviar mensaje a OpenAI
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o", // o "gpt-3.5-turbo" para un modelo más ligero y económico
+      messages: [
+        { role: "system", content: baseSystemPrompt },
+        { role: "user", content: message }
+      ],
+      response_format: { type: "json_object" }
+    });
+
+    // Extraer y procesar la respuesta
+    const responseContent = completion.choices[0].message.content;
+    const parsedResponse = JSON.parse(responseContent);
+
+    // Validar que la respuesta tenga el formato correcto
+    if (!parsedResponse.action || !parsedResponse.message) {
+      throw new Error('La respuesta de OpenAI no tiene el formato esperado');
+    }
+
+    return parsedResponse;
+  } catch (error) {
+    console.error('Error procesando mensaje con OpenAI:', error);
+    // Fallback al procesamiento simple si hay un error
+    return processMessageSimple(message);
+  }
+}
+
+/**
+ * Procesamiento simple de mensajes (fallback si OpenAI no está disponible)
+ * @param {string} message - Mensaje del usuario
+ * @returns {Object} - Acción a realizar y mensaje de respuesta
+ */
+function processMessageSimple(message) {
+  console.log('\n\n✨ PROCESAMIENTO DE MENSAJE ✨');
+  console.log('💬 ENTRADA:', message);
+  const lowerMessage = message.toLowerCase();
+  let action = 'info';
+  let parameters = {};
+  let responseMessage = 'No estoy seguro de lo que quieres hacer. Prueba con comandos como "reproducir rock" o "pausar música".';
+  
+  // Evaluar si el mensaje parece claramente una solicitud para añadir a la cola
+  const isQueueRequest = 
+    (lowerMessage.includes('cola') || lowerMessage.includes('queue')) && 
+    (lowerMessage.includes('añade') || lowerMessage.includes('agregar') || 
+     lowerMessage.includes('pon') || lowerMessage.includes('añadir'));
+
+  // Añadir a la cola (si parece una solicitud de cola)
+  if (isQueueRequest) {
+    action = 'queue';
+    let query = '';
+    let matched = false;
+
+    // Buscar patrones comunes para añadir a la cola con regex
+    const regexPatterns = [
+      /añade\s+(.+?)\s+(a\s+la\s+cola|en\s+la\s+cola|a\s+cola|en\s+cola)/i,
+      /añadir\s+(.+?)\s+(a\s+la\s+cola|en\s+la\s+cola|a\s+cola|en\s+cola)/i,
+      /agrega\s+(.+?)\s+(a\s+la\s+cola|en\s+la\s+cola|a\s+cola|en\s+cola)/i,
+      /agregar\s+(.+?)\s+(a\s+la\s+cola|en\s+la\s+cola|a\s+cola|en\s+cola)/i,
+      /pon\s+(.+?)\s+(a\s+la\s+cola|en\s+la\s+cola|a\s+cola|en\s+cola)/i,
+      /poner\s+(.+?)\s+(a\s+la\s+cola|en\s+la\s+cola|a\s+cola|en\s+cola)/i,
+      /queue\s+(.+)$/i
+    ];
+    
+    // Intentar encontrar coincidencia con regex
+    for (const pattern of regexPatterns) {
+      const match = lowerMessage.match(pattern);
+      if (match && match[1]) {
+        query = match[1].trim();
+        matched = true;
+        console.log(' DETECCIÓN: Consulta de cola encontrada');
+        console.log('   • Patrón:', pattern);
+        console.log('   • Coincidencia:', query);
+        break;
+      }
+    }
+
+    // Si no se ha encontrado patrón, intentar método alternativo
+    if (!matched) {
+      const queueTerms = ['cola', 'queue', 'añadir a la cola', 'agregar a la cola', 'en la cola'];
+      for (const term of queueTerms) {
+        if (lowerMessage.includes(term)) {
+          const parts = lowerMessage.split(term);
+          if (parts.length > 1) {
+            if (parts[1].trim()) {
+              query = parts[1].trim();
+              matched = true;
+              console.log(' DETECCIÓN: Término de cola encontrado');
+              console.log('   • Término:', term);
+              console.log('   • Consulta después:', query);
+              break;
+            } else if (parts[0].trim()) {
+              // Buscar en la parte anterior del mensaje
+              const preParts = parts[0].split(' ');
+              const relevantParts = preParts.slice(Math.max(0, preParts.length - 5)).join(' ').trim();
+              if (relevantParts && !relevantParts.match(/^(pon|poner|agregar?|añad[ei]r?)$/i)) {
+                query = relevantParts;
+                matched = true;
+                console.log(' DETECCIÓN: Término de cola encontrado (antes)');
+                console.log('   • Término:', term);
+                console.log('   • Consulta antes:', query);
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    if (query) {
+      console.log(' RESULTADO: Consulta para cola encontrada =>', query);
+      // Procesar consulta para detectar múltiples canciones
+      const songQueries = [];
+      // Buscar patrones de separación de canciones
+      // 1. Canciones separadas por 'y', 'and', 'también', etc.
+      const splitByConjunctions = query.split(/\s+y\s+|\s+and\s+|\s+tambi[eé]n\s+|\s+junto\s+con\s+|\s+adem[aá]s\s+de\s+/);
+      // 2. Canciones separadas por comas
+      let processedQueries = [];
+      splitByConjunctions.forEach(part => {
+        // Divide por comas, pero no dentro de frases como "Guns N' Roses"
+        const comaSplit = part.split(/,\s*(?![^()]*\))/);
+        processedQueries = [...processedQueries, ...comaSplit];
+      });
+      // Limpiar y agregar cada consulta
+      processedQueries.forEach(songQuery => {
+        const cleanQuery = songQuery.trim();
+        if (cleanQuery && cleanQuery.length > 1) { // Evitar añadir consultas vacías o muy cortas
+          songQueries.push(cleanQuery);
+        }
+      });
+      // Si solo hay una canción, usar acción normal de queue
+      if (songQueries.length === 1) {
+        action = 'queue';
+        parameters = { query: songQueries[0] };
+        responseMessage = `Añadiendo "${songQueries[0]}" a la cola de reproducción`;
+      }
+      // Si hay múltiples canciones, usar queue_multiple
+      else if (songQueries.length > 1) {
+        console.log(` MULTI-COLA: Detectadas ${songQueries.length} solicitudes de canciones`);
+        songQueries.forEach((song, index) => {
+          console.log(`   • [${index + 1}] ${song}`);
+        });
+        action = 'queue_multiple';
+        parameters = { queries: songQueries };
+        responseMessage = `Añadiendo ${songQueries.length} canciones a la cola de reproducción: ${songQueries.map(q => `"${q}"`).join(', ')}`;
+      }
+      else {
+        action = 'info';
+        responseMessage = 'No he entendido qué canciones quieres añadir a la cola. Inténtalo con algo como "añade Bohemian Rhapsody y Stairway to Heaven a la cola".';
+      }
+    } else {
+      action = 'info';
+      responseMessage = 'No he entendido qué quieres añadir a la cola. Inténtalo con algo como "añade Bohemian Rhapsody a la cola".';
+    }
+  }
+  // Reproducir música
+  else if (lowerMessage.includes('reproduc') || lowerMessage.includes('play') || 
+      (lowerMessage.includes('pon') && !isQueueRequest)) {
+    action = 'play';
+    // Si no es un comando complejo, extraer la consulta
+    if (!lowerMessage.includes('volum') && !lowerMessage.includes('anterior') && 
+        !lowerMessage.includes('siguiente') && !lowerMessage.includes('next') && 
+        !lowerMessage.includes('prev')) {
+      // Eliminar palabras clave de reproducción para quedarnos con la consulta
+      let query = lowerMessage;
+      const playTerms = ['reproducir', 'reproduce', 'play', 'pon', 'poner', 'escuchar', 'escucha'];
+      for (const term of playTerms) {
+        if (lowerMessage.includes(term)) {
+          const parts = lowerMessage.split(term);
+          if (parts.length > 1 && parts[1].trim()) {
+            query = parts[1].trim();
+            break;
+          }
+        }
+      }
+      parameters = { query };
+      responseMessage = `Reproduciendo "${query}"`;
+    }
+  }
+  // Pausar reproducción - evitar confusión con títulos de canciones
+  else if ((lowerMessage.includes('pausa') && !isQueueRequest) || 
+           (lowerMessage.includes('pause') && !isQueueRequest) || 
+           (lowerMessage.includes('stop') && !isQueueRequest && lowerMessage.length < 15) || // Solo si es un comando corto
+           (lowerMessage.includes('para') && !isQueueRequest && lowerMessage.length < 15)) {
+    action = 'pause';
+    responseMessage = 'Pausando la reproducción';
+    console.log('🔕 COMANDO: Interpretando como pausa');
+  }
+  // Reanudar
+  else if (lowerMessage.includes('contin') || lowerMessage.includes('resume') || lowerMessage.includes('reanudar')) {
+    action = 'resume';
+    responseMessage = 'Reanudando la reproducción';
+  }
+  // Siguiente canción
+  else if (lowerMessage.includes('siguiente') || lowerMessage.includes('next') || lowerMessage.includes('salta')) {
+    action = 'next';
+    responseMessage = 'Pasando a la siguiente canción';
+  }
+  // Canción anterior
+  else if (lowerMessage.includes('anterior') || lowerMessage.includes('prev') || lowerMessage.includes('previa')) {
+    action = 'previous';
+    responseMessage = 'Volviendo a la canción anterior';
+  }
+  // Ajustar volumen
+  else if (lowerMessage.includes('volumen') || lowerMessage.includes('volume') || 
+           lowerMessage.includes('subir') || lowerMessage.includes('bajar') || 
+           lowerMessage.includes('alto') || lowerMessage.includes('bajo')) {
+    action = 'volume';
+    let level = 50; // Valor por defecto
+    
+    if (lowerMessage.includes('subir') || lowerMessage.includes('aumenta') || lowerMessage.includes('más alto')) {
+      level = 75;
+    }
+    else if (lowerMessage.includes('baja') || lowerMessage.includes('reduce') || lowerMessage.includes('más bajo')) {
+      level = 25;
+    }
+    
+    parameters = { level };
+    responseMessage = `Ajustando volumen al ${level}%`;
+  } 
+  // Buscar
+  else if (lowerMessage.includes('busca') || lowerMessage.includes('search') || lowerMessage.includes('encuentra')) {
+    action = 'search';
+    // Extraer términos de búsqueda
+    const queryTerms = ['buscar', 'busca', 'search', 'encuentra', 'encontrar'];
+    let query = lowerMessage;
+    for (const term of queryTerms) {
+      if (lowerMessage.includes(term)) {
+        const parts = lowerMessage.split(term);
+        if (parts.length > 1 && parts[1].trim()) {
+          query = parts[1].trim();
+          break;
+        }
+      }
+    }
+    parameters = { query };
+    responseMessage = `Buscando "${query}"`;
+  }
+  
+  return {
+    action,
+    parameters,
+    message: responseMessage
+  };
+}
+
+module.exports = {
+  processMessage
+};

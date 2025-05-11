@@ -48,19 +48,9 @@ app.use('/api/assistant', assistantRoutes);
 app.use('/api/history', historyRoutes);
 app.use('/api/cache', cacheRoutes); // Nuevas rutas para pruebas de Redis
 
-// Para rutas que no son /api, servir la aplicación React
-app.get('*', (req, res, next) => {
-  // Si la ruta comienza con /api, pasar al siguiente middleware
-  if (req.path.startsWith('/api')) {
-    return next();
-  }
-  // Para todas las demás rutas, servir el index.html de React
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Middleware para rutas de API no encontradas
-app.use('/api/*', (req, res) => {
-  res.status(404).json({ error: 'Ruta de API no encontrada' });
+// Middleware para rutas no encontradas
+app.use((req, res) => {
+  res.status(404).json({ error: 'Ruta no encontrada' });
 });
 
 // Middleware para manejo de errores

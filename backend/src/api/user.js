@@ -792,8 +792,8 @@ router.get('/queue', async (req, res) => {
       if (queueData && queueData.queue) {
         console.log(`👉 COLA REAL SPOTIFY: ${queueData.queue.length} elementos encontrados`);
         
-        // Mapear la información de la cola a nuestro formato
-        const mappedQueue = queueData.queue.map(track => ({
+        // Mapear la información de la cola a nuestro formato, manteniendo TODAS las canciones y el orden original
+        nextInQueue = queueData.queue.map(track => ({
           name: track.name,
           artist: track.artists[0].name,
           album: track.album.name,
@@ -802,46 +802,37 @@ router.get('/queue', async (req, res) => {
           uri: track.uri
         }));
         
-        // Eliminar canciones duplicadas consecutivas (API de Spotify a veces repite elementos)
-        const filteredQueue = [];
-        let prevUri = null;
-        
-        mappedQueue.forEach(track => {
-          // Solo añadir si es diferente al anterior o si es el primero
-          if (track.uri !== prevUri) {
-            filteredQueue.push(track);
-            prevUri = track.uri;
-          } else {
-            console.log(`🔎 Eliminando duplicado consecutivo: ${track.name}`);
+        // Solo eliminamos duplicados consecutivos (extremadamente raros en Spotify)
+        // pero mantenemos el resto de canciones intactas, incluso si tienen el mismo URI
+        // para mantener la coherencia con la app oficial de Spotify
+        if (nextInQueue.length > 1) {
+          const filteredQueue = [];
+          let prevTrack = null;
+          
+          for (let i = 0; i < nextInQueue.length; i++) {
+            const currentTrack = nextInQueue[i];
+            
+            // Solo filtramos cuando hay dos canciones idénticas seguidas
+            if (prevTrack && prevTrack.uri === currentTrack.uri && 
+                prevTrack.name === currentTrack.name) {
+              console.log(`🔎 Eliminando duplicado consecutivo real: ${currentTrack.name}`);
+            } else {
+              filteredQueue.push(currentTrack);
+              prevTrack = currentTrack;
+            }
           }
-        });
+          
+          // Actualizar la lista de canciones filtradas
+          nextInQueue = filteredQueue;
+        }
         
-        // Eliminar duplicados de la misma canción en cualquier posición
-        const uniqueUris = new Set();
-        nextInQueue = filteredQueue.filter(track => {
-          // Si ya hemos visto este URI, es un duplicado
-          if (uniqueUris.has(track.uri)) {
-            console.log(`🔎 Eliminando duplicado en cola: ${track.name}`);
-            return false;
-          }
-          uniqueUris.add(track.uri);
-          return true;
-        });
+        console.log(`📈 Cola actual de Spotify: ${nextInQueue.length} elementos`);
         
-        console.log(`📈 Cola final después de eliminar duplicados: ${nextInQueue.length} elementos`);
-        
-        // Filtrar la canción actual de la cola
+        // NO filtramos más canciones para mantener coherencia con Spotify
+        // La app oficial puede mostrar la canción actual en la cola también, así que
+        // la mantenemos para mostrar exactamente lo mismo que la app oficial
         if (currentlyPlaying && currentlyPlaying.uri) {
-          console.log(`🔄 COLA: Verificando si la canción actual (${currentlyPlaying.name}) aparece en cola...`);
-          const queueBeforeFilter = [...nextInQueue]; // Copia para comparar
-          
-          // Eliminar cualquier canción con el mismo URI que la actual
-          nextInQueue = nextInQueue.filter(item => item.uri !== currentlyPlaying.uri);
-          
-          // Si se eliminaron elementos, mostrar mensaje
-          if (nextInQueue.length < queueBeforeFilter.length) {
-            console.log(`❗️ COLA: Eliminados ${queueBeforeFilter.length - nextInQueue.length} elementos de la cola que coinciden con la canción actual`);
-          }
+          console.log(`🔄 COLA: Canción actual (${currentlyPlaying.name}) - respetando contenido original de cola`);
         }
         
         // Actualizar nuestra caché global

@@ -548,6 +548,9 @@ router.post('/queue', async (req, res) => {
   }
   
   try {
+    // Obtener instancia de SpotifyAPI para este usuario específico
+    const spotifyApi = await getSpotifyForRequest(req);
+    
     // Verificar dispositivos disponibles
     const devices = await spotifyApi.getMyDevices();
     const hasActiveDevice = devices.body.devices.some(device => device.is_active);

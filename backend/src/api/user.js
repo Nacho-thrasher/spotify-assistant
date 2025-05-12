@@ -774,11 +774,27 @@ router.get('/queue', async (req, res) => {
       // Obtener cola con soporte de refresco de token automático
       let queueData;
       try {
+        // Obtener y registrar el token para curl
+        const token = spotifyApi.getAccessToken();
+        console.log('\n\n======== TOKEN PARA CURL ========');
+        console.log(`TOKEN=${token}`);
+        console.log('Comando curl para verificar el orden:');
+        console.log(`curl -X GET "https://api.spotify.com/v1/me/player/queue" -H "Authorization: Bearer ${token}" -H "Content-Type: application/json"`);
+        console.log('======== FIN TOKEN PARA CURL ========\n\n');
+        
         queueData = await spotifyHelpers.getQueue(spotifyApi);
         
         // DEPURACIÓN: Mostrar respuesta completa de la API
         console.log('======== RESPUESTA COMPLETA DE LA API SPOTIFY ========');
         console.log('Estructura de queueData:', JSON.stringify(queueData, null, 2));
+        
+        // Mostrar solo los nombres de las canciones en cola para verificar orden
+        if (queueData.queue && Array.isArray(queueData.queue)) {
+          console.log('\nORDEN DE CANCIONES EN COLA:\n');
+          queueData.queue.forEach((track, index) => {
+            console.log(`${index + 1}. ${track.name} - ${track.artists[0].name}`);
+          });
+        }
         console.log('======== FIN RESPUESTA API SPOTIFY ========');
         
       } catch (queueError) {

@@ -14,17 +14,16 @@ const DEFAULT_USER_ID = 'guest';
  * @returns {string} - Un ID de usuario único
  */
 const generateUniqueUserId = (req) => {
-  // Usar un hash del IP + user agent para crear un identificador único para invitados
-  // Ya NO agregamos Date.now() para que el ID sea consistente entre solicitudes del mismo cliente
+  // Usar simplemente la IP y un identificador único aleatorio para invitados
+  // IMPORTANTE: Ya NO usamos valores que cambian entre peticiones
   const ip = req.ip || req.connection.remoteAddress || 'unknown';
-  const userAgent = req.headers['user-agent'] || 'unknown';
-  const sessionKey = req.sessionID || ''; // Usar ID de sesión si está disponible
-  
-  return crypto
-    .createHash('sha256')
-    .update(`${ip}-${userAgent}-${sessionKey}`)
+  const simpleId = crypto
+    .createHash('md5')
+    .update(ip)
     .digest('hex')
-    .substring(0, 24); // Un ID de tamaño razonable
+    .substring(0, 12);
+    
+  return simpleId;
 };
 
 /**
@@ -32,13 +31,18 @@ const generateUniqueUserId = (req) => {
  * El ID se almacena en req.userId para un acceso consistente
  */
 const ensureUserId = (req, res, next) => {
+  // MEJORADO: Agregar cookie directa como fuente adicional de persistencia
+  const cookieUserId = req.cookies && req.cookies.userId;
+  
   // Prioridad de fuentes para el ID de usuario
   req.userId = 
     // 1. Si hay un usuario autenticado
     req.user?.id || 
     // 2. Si hay un ID en la sesión
     req.session?.userId || 
-    // 3. Si se proporcionó explícitamente en los headers
+    // 3. Si hay un ID en cookies (nuevo)
+    cookieUserId ||
+    // 4. Si se proporcionó explícitamente en los headers
     req.headers['user-id'];
   
   // Si no tenemos un ID de usuario, creamos uno y lo guardamos en la sesión
@@ -51,16 +55,35 @@ const ensureUserId = (req, res, next) => {
       req.userId = DEFAULT_USER_ID;
     }
     
-    // Guardar en sesión para solicitudes futuras
+    // IMPORTANTE: Guardar el ID en TODOS los lugares posibles para maximizar persistencia
+    // 1. Guardar en sesión
     if (req.session) {
       req.session.userId = req.userId;
     }
     
+    // 2. Guardar en cookie directa (dura 7 días)
+    res.cookie('userId', req.userId, {
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 días
+      httpOnly: true,
+      sameSite: 'lax'
+    });
+    
     console.log(`Generado nuevo ID de usuario: ${req.userId}`);
+  } else {
+    // IMPORTANTE: Asegurar que todos los lugares tengan el mismo ID
+    // Si tenemos un ID pero no está en sesion o cookie, actualizarlos
+    if (req.session && req.session.userId !== req.userId) {
+      req.session.userId = req.userId;
+    }
+    
+    if (!cookieUserId || cookieUserId !== req.userId) {
+      res.cookie('userId', req.userId, {
+        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 días
+        httpOnly: true,
+        sameSite: 'lax'
+      });
+    }
   }
-  
-  // Para debugging
-  // console.log(`Request de usuario con ID: ${req.userId}`);
   
   next();
 };

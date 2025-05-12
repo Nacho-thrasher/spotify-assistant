@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const path = require('path');
+const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
 // Importar configuraciones
@@ -19,12 +20,16 @@ const cacheRoutes = require('./api/cache'); // Nuevo router para pruebas de cach
 const app = express();
 
 // Middlewares
-app.use(cors());
+app.use(cors({
+  origin: [process.env.FRONTEND_URL, 'http://localhost:3000'], // Permitir solicitudes del frontend
+  credentials: true // IMPORTANTE: Permitir cookies en solicitudes CORS
+}));
 app.use(helmet({
   contentSecurityPolicy: false  // Deshabilitar para desarrollo
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+app.use(cookieParser()); // NUEVO: Middleware para analizar cookies
 app.use(morgan('dev')); // Logs coloridos para desarrollo
 
 // Configuración de sesiones con Redis

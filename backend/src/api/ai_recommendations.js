@@ -121,8 +121,8 @@ function buildRecommendationContext(parameters, playbackContext) {
  * @returns {Promise<Array>} - Lista de recomendaciones
  */
 async function getRecommendationsFromAI(context) {
-  // Construir un prompt para OpenAI
-  let prompt = 'Necesito 5 recomendaciones musicales específicas con nombre de canción y artista. ';
+  // Construir un prompt para OpenAI con instrucciones detalladas para formato
+  let prompt = 'IMPORTANTE: Necesito EXACTAMENTE 5 recomendaciones musicales ESPECÍFICAS con nombre de canción y artista. ';
   
   // Añadir contexto según lo que tengamos
   if (context.references.length > 0 && context.references[0].type === 'current_track') {
@@ -142,7 +142,18 @@ async function getRecommendationsFromAI(context) {
     prompt += `Similares a: ${context.basedOn}. `;
   }
   
-  prompt += 'Responde SOLO con una lista de 5 canciones en formato JSON con campos "song" y "artist" para cada una. No incluyas información adicional.';
+  prompt += `
+
+RESPONDE ESTRICTAMENTE CON ESTE FORMATO y nada más:
+[
+  { "song": "Nombre de Canción 1", "artist": "Nombre de Artista 1" },
+  { "song": "Nombre de Canción 2", "artist": "Nombre de Artista 2" },
+  { "song": "Nombre de Canción 3", "artist": "Nombre de Artista 3" },
+  { "song": "Nombre de Canción 4", "artist": "Nombre de Artista 4" },
+  { "song": "Nombre de Canción 5", "artist": "Nombre de Artista 5" }
+]
+
+NO INCLUYAS ningún texto antes o después del JSON. SOLO devuelve el array JSON con 5 canciones.`;
   
   try {
     // Llamar al modelProvider para obtener recomendaciones
@@ -203,16 +214,41 @@ async function getRecommendationsFromAI(context) {
       
       // Intentar extraer recomendaciones usando regex si falló el JSON
       const recommendations = [];
-      // Buscar patrones como "1. Canción - Artista" o "- Canción por Artista"
-      const regex = /(?:\d+\.\s+|\-\s+)?["']?([^"'\-]+)["']?\s+(?:by|por|de|[-–])\s+([^,\n.]+)/gi;
-      let match;
+      // Mejorar regex para capturar más patrones de recomendaciones
+      // Buscar diferentes formatos como:
+      // - "1. Canción - Artista"
+      // - "- Canción por Artista"
+      // - "Canción by Artista"
+      // - "Canción de Artista"
+      const regexPatterns = [
+        // Patrón con numeración o guiones
+        /(?:\d+\.\s+|\-\s+)?["']?([^"'\-\n]+)["']?\s+(?:by|por|de|[-–])\s+([^,\n.;:"']+)/gi,
+        // Patrón artista - canción (invertido)
+        /([^,\n.;:]+)\s+[-–]\s+["']?([^"'\n]+)["']?/gi,
+        // Patrón con "from"
+        /["']?([^"'\n]+)["']?\s+from\s+([^,\n.;:"']+)/gi,
+        // Buscar cualquier mención de canción y artista
+        /"([^"]+)"\s+(?:by|de|por)\s+([^,\.\n]+)/gi
+      ];
       
       const responseText = response.toString();
-      while ((match = regex.exec(responseText)) !== null && recommendations.length < 5) {
-        recommendations.push({
-          song: match[1].trim(),
-          artist: match[2].trim()
-        });
+      // Intentar cada patrón
+      for (const regex of regexPatterns) {
+        let match;
+        while ((match = regex.exec(responseText)) !== null && recommendations.length < 5) {
+          // Verificar que son datos válidos (no vacíos)
+          if (match[1]?.trim() && match[2]?.trim()) {
+            recommendations.push({
+              song: match[1].trim(),
+              artist: match[2].trim()
+            });
+          }
+        }
+        
+        // Si ya encontramos suficientes, salimos
+        if (recommendations.length >= 3) {
+          break;
+        }
       }
       
       if (recommendations.length > 0) {

@@ -29,7 +29,8 @@ app.use(helmet({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-app.use(cookieParser()); // NUEVO: Middleware para analizar cookies
+// Configurar cookie-parser con una clave secreta para firmar cookies
+app.use(cookieParser(process.env.SESSION_SECRET || 'spotify_assistant_secret_key')); 
 app.use(morgan('dev')); // Logs coloridos para desarrollo
 
 // Configuración de sesiones con Redis

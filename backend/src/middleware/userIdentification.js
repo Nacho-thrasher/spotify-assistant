@@ -14,9 +14,24 @@ const DEFAULT_USER_ID = 'guest';
  * @returns {string} - Un ID de usuario único
  */
 const generateUniqueUserId = (req) => {
-  // Usar simplemente la IP y un identificador único aleatorio para invitados
-  // IMPORTANTE: Ya NO usamos valores que cambian entre peticiones
-  const ip = req.ip || req.connection.remoteAddress || 'unknown';
+  // ENFOQUE SIMPLIFICADO: Usar SOLO la IP, sin ningún otro factor
+  // Esto garantiza que sea 100% consistente para un mismo cliente
+  
+  // Primero limpiamos la IP para hacerla más consistente
+  let ip = req.ip || req.connection.remoteAddress || 'unknown';
+  
+  // Si es IPv6 local, convertir a formato simple
+  if (ip === '::1' || ip === '::ffff:127.0.0.1') {
+    ip = '127.0.0.1';
+  }
+  
+  // Si contiene múltiples IPs, usar solo la primera
+  if (ip.includes(',')) {
+    ip = ip.split(',')[0].trim();
+  }
+  
+  console.log(`Generando ID basado en IP: ${ip}`);
+  
   const simpleId = crypto
     .createHash('md5')
     .update(ip)
@@ -51,42 +66,85 @@ const ensureUserId = (req, res, next) => {
     // 5. Si se proporcionó explícitamente en los headers
     req.headers['user-id'];
   
-  // Si no tenemos un ID de usuario, creamos uno y lo guardamos en la sesión
+  // Si no tenemos un ID de usuario, intentamos obtenerlo del cliente o creamos uno
   if (!req.userId) {
-    if (process.env.NODE_ENV === 'production') {
-      // En producción, generamos un ID único para este usuario/dispositivo
-      req.userId = generateUniqueUserId(req);
+    // Intentar obtener un identificador de la cookie firmada primero
+    const signedCookieUserId = req.signedCookies && req.signedCookies.userId;
+    
+    // Si ya tenemos una cookie firmada, usarla con prioridad
+    if (signedCookieUserId) {
+      req.userId = signedCookieUserId;
+      console.log(`Restaurado ID de usuario desde cookie firmada: ${req.userId}`);
     } else {
-      // En desarrollo, usamos un ID predeterminado para pruebas
-      req.userId = DEFAULT_USER_ID;
+      // En último caso, generar uno nuevo
+      if (process.env.NODE_ENV === 'production') {
+        // En producción, generamos un ID único para este usuario/dispositivo
+        req.userId = generateUniqueUserId(req);
+      } else {
+        // En desarrollo, usamos un ID predeterminado para pruebas
+        req.userId = DEFAULT_USER_ID;
+      }
+      
+      console.log(`Generado nuevo ID de usuario: ${req.userId}`);
     }
     
     // IMPORTANTE: Guardar el ID en TODOS los lugares posibles para maximizar persistencia
     // 1. Guardar en sesión
     if (req.session) {
       req.session.userId = req.userId;
+      // Forzar guardado de sesión de inmediato
+      if (req.session.save) {
+        req.session.save();
+      }
     }
     
-    // 2. Guardar en cookie directa (dura 7 días)
-    res.cookie('userId', req.userId, {
-      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 días
+    // 2. Guardar en cookie directa Y firmada (dura 30 días)
+    const COOKIE_OPTIONS = {
+      maxAge: 1000 * 60 * 60 * 24 * 30, // 30 días
       httpOnly: true,
-      sameSite: 'lax'
-    });
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+    };
     
-    console.log(`Generado nuevo ID de usuario: ${req.userId}`);
+    // Cookie sin firmar (para compatibilidad)
+    res.cookie('userId', req.userId, COOKIE_OPTIONS);
+    
+    // Cookie firmada (más segura)
+    res.cookie('userId', req.userId, { 
+      ...COOKIE_OPTIONS,
+      signed: true 
+    });
   } else {
     // IMPORTANTE: Asegurar que todos los lugares tengan el mismo ID
     // Si tenemos un ID pero no está en sesion o cookie, actualizarlos
     if (req.session && req.session.userId !== req.userId) {
       req.session.userId = req.userId;
+      // Forzar guardado de sesión de inmediato
+      if (req.session.save) {
+        req.session.save();
+      }
     }
     
+    // Solo actualizar cookies si son diferentes del ID actual
+    const COOKIE_OPTIONS = {
+      maxAge: 1000 * 60 * 60 * 24 * 30, // 30 días
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+    };
+    
     if (!cookieUserId || cookieUserId !== req.userId) {
-      res.cookie('userId', req.userId, {
-        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 días
-        httpOnly: true,
-        sameSite: 'lax'
+      res.cookie('userId', req.userId, COOKIE_OPTIONS);
+    }
+    
+    // Actualizar cookie firmada si es necesario
+    const signedCookieUserId = req.signedCookies && req.signedCookies.userId;
+    if (!signedCookieUserId || signedCookieUserId !== req.userId) {
+      res.cookie('userId', req.userId, { 
+        ...COOKIE_OPTIONS,
+        signed: true 
       });
     }
   }

@@ -14,7 +14,56 @@ const redirectUri = isProduction
   : process.env.SPOTIFY_REDIRECT_URI;
 
 // Cache de instancias de SpotifyAPI por usuario (en memoria)
+// Estructura: Map<userId, {api: SpotifyWebApi, lastUsed: timestamp}>
 const spotifyInstances = new Map();
+
+// Configuración para la gestión de memoria
+const MEMORY_CONFIG = {
+  // Tiempo máximo de inactividad para una instancia (4 horas en ms)
+  MAX_INSTANCE_IDLE_TIME: 4 * 60 * 60 * 1000,
+  // Intervalo de limpieza de instancias (30 minutos en ms)
+  CLEANUP_INTERVAL: 30 * 60 * 1000,
+  // Máximo de instancias en memoria antes de forzar limpieza
+  MAX_INSTANCES: 100
+};
+
+/**
+ * Actualiza la marca de tiempo para una instancia indicando su último uso
+ */
+const touchInstance = (userId) => {
+  if (spotifyInstances.has(userId)) {
+    const instance = spotifyInstances.get(userId);
+    instance.lastUsed = Date.now();
+    spotifyInstances.set(userId, instance);
+  }
+};
+
+/**
+ * Limpia instancias inactivas según configuración
+ */
+const cleanupInstances = () => {
+  const now = Date.now();
+  let cleanedCount = 0;
+  
+  for (const [userId, instance] of spotifyInstances.entries()) {
+    const idleTime = now - instance.lastUsed;
+    if (idleTime > MEMORY_CONFIG.MAX_INSTANCE_IDLE_TIME) {
+      spotifyInstances.delete(userId);
+      cleanedCount++;
+    }
+  }
+  
+  if (cleanedCount > 0) {
+    console.log(`🧹 Limpieza periódica: ${cleanedCount} instancias de Spotify eliminadas por inactividad`);
+    console.log(`📊 Instancias activas restantes: ${spotifyInstances.size}`);
+  }
+};
+
+// Iniciar limpieza periódica
+const cleanupInterval = setInterval(cleanupInstances, MEMORY_CONFIG.CLEANUP_INTERVAL);
+
+// Asegurar que el intervalo no impida que Node.js termine
+cleanupInterval.unref();
 
 /**
  * Guarda tokens de Spotify en Redis para un usuario específico
@@ -67,9 +116,34 @@ const createSpotifyInstance = () => {
  * Si no existe, crea una nueva y la inicializa con sus tokens si están disponibles
  */
 const getSpotifyApiForUser = async (userId) => {
-  // Si ya existe una instancia en memoria, la devolvemos
+  // Si ya existe una instancia en memoria, la actualizamos y devolvemos
   if (spotifyInstances.has(userId)) {
-    return spotifyInstances.get(userId);
+    touchInstance(userId); // Actualizar timestamp de último uso
+    return spotifyInstances.get(userId).api;
+  }
+  
+  // Verificar si estamos sobre el límite de instancias y forzar limpieza si es necesario
+  if (spotifyInstances.size >= MEMORY_CONFIG.MAX_INSTANCES) {
+    console.log(`⚠️ Alcanzado límite de instancias (${MEMORY_CONFIG.MAX_INSTANCES}). Forzando limpieza...`);
+    cleanupInstances();
+    
+    // Si seguimos sobre el límite, eliminar la instancia menos usada
+    if (spotifyInstances.size >= MEMORY_CONFIG.MAX_INSTANCES) {
+      let oldestUserId = null;
+      let oldestTime = Date.now();
+      
+      for (const [id, instance] of spotifyInstances.entries()) {
+        if (instance.lastUsed < oldestTime) {
+          oldestTime = instance.lastUsed;
+          oldestUserId = id;
+        }
+      }
+      
+      if (oldestUserId) {
+        spotifyInstances.delete(oldestUserId);
+        console.log(`🗑️ Eliminada instancia más antigua: ${oldestUserId}`);
+      }
+    }
   }
   
   // Crear nueva instancia
@@ -83,9 +157,13 @@ const getSpotifyApiForUser = async (userId) => {
     spotifyApi.setRefreshToken(tokens.refreshToken);
   }
   
-  // Guardar la instancia en memoria
-  spotifyInstances.set(userId, spotifyApi);
+  // Guardar la instancia en memoria con timestamp
+  spotifyInstances.set(userId, {
+    api: spotifyApi,
+    lastUsed: Date.now()
+  });
   
+  console.log(`📊 Instancias activas: ${spotifyInstances.size}`);
   return spotifyApi;
 };
 
@@ -99,15 +177,21 @@ const setUserTokens = async (userId, accessToken, refreshToken, expiresIn) => {
     
     // Actualizar la instancia en memoria si existe
     if (spotifyInstances.has(userId)) {
-      const spotifyApi = spotifyInstances.get(userId);
-      spotifyApi.setAccessToken(accessToken);
-      spotifyApi.setRefreshToken(refreshToken);
+      const instance = spotifyInstances.get(userId);
+      instance.api.setAccessToken(accessToken);
+      instance.api.setRefreshToken(refreshToken);
+      instance.lastUsed = Date.now(); // Actualizar timestamp
+      spotifyInstances.set(userId, instance);
     } else {
       // Crear nueva instancia si no existe
       const spotifyApi = createSpotifyInstance();
       spotifyApi.setAccessToken(accessToken);
       spotifyApi.setRefreshToken(refreshToken);
-      spotifyInstances.set(userId, spotifyApi);
+      
+      spotifyInstances.set(userId, {
+        api: spotifyApi,
+        lastUsed: Date.now()
+      });
     }
     
     console.log(`Tokens actualizados para usuario ${userId}`);
@@ -136,11 +220,17 @@ const refreshUserTokens = async (userId) => {
       // Crear instancia con el refresh token
       const spotifyApi = createSpotifyInstance();
       spotifyApi.setRefreshToken(tokens.refreshToken);
-      spotifyInstances.set(userId, spotifyApi);
+      
+      spotifyInstances.set(userId, {
+        api: spotifyApi,
+        lastUsed: Date.now()
+      });
     }
     
-    // Obtener instancia
-    const spotifyApi = spotifyInstances.get(userId);
+    // Obtener instancia y actualizar timestamp
+    const instance = spotifyInstances.get(userId);
+    const spotifyApi = instance.api;
+    instance.lastUsed = Date.now();
     
     // Intentar renovar token
     const data = await spotifyApi.refreshAccessToken();
@@ -219,5 +309,11 @@ const spotifyApiProxy = {
     await clearUserInstance(userId);
   }
 };
+
+// Exponer función de limpieza para pruebas o control manual
+spotifyApiProxy.cleanupInactiveInstances = cleanupInstances;
+
+// Exponer función para estadísticas
+spotifyApiProxy.getInstancesCount = () => spotifyInstances.size;
 
 module.exports = spotifyApiProxy;

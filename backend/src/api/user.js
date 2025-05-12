@@ -685,22 +685,22 @@ router.post('/search-and-queue', async (req, res) => {
  * @access  Private
  */
 router.get('/queue', async (req, res) => {
+  const userId = getUserIdSafe(req); // Obtener userId
+  let nextInQueue = [];
+  let currentlyPlaying = null;
+  
+  console.log('🔎 COLA: Obteniendo información de la cola...');
+  
   try {
-    const userId = getUserIdSafe(req); // Obtener userId
-    const currentlyPlayingCache = {};
-    let nextInQueue = [];
-    
-    console.log('🔎 COLA: Obteniendo información de la cola...');
-    
-    // Obtener instancia de SpotifyAPI para este usuario específico
+    // 1. Obtener instancia de SpotifyAPI para este usuario específico
     const spotifyApi = await getSpotifyForRequest(req);
     
-    // 1. Primero obtenemos la información de la canción actual
+    // 2. Primero obtenemos la información de la canción actual
     console.log('🎵 COLA: Obteniendo pista actual...');
     const currentPlayingTrack = await spotifyApi.getMyCurrentPlayingTrack();
     
     // Extraer información actual
-    const currentlyPlaying = currentPlayingTrack.body?.item ? {
+    currentlyPlaying = currentPlayingTrack.body?.item ? {
       name: currentPlayingTrack.body.item.name,
       artist: currentPlayingTrack.body.item.artists[0].name,
       album: currentPlayingTrack.body.item.album.name,
@@ -711,31 +711,26 @@ router.get('/queue', async (req, res) => {
     
     console.log('💾 COLA: Datos de reproducción recibidos:', currentlyPlaying);
     
-    // 2. Ahora obtenemos y procesamos la cola
-    console.log('🔄 COLA: Reiniciando caché global para sincronizar con estado actual');
-    
-    // 3. Verificar si la canción actual ya estaba en cola previamente
-    console.log('✅ COLA: Revisando si la canción actual estaba en cola previamente ');
-    
-    // Verificar el estado actual de la caché de cola
-    console.log('🖼️ COLA: Estado de la cola en cache:');
+    // 3. Verificar el estado actual de la caché de cola
+    console.log('🗨️ COLA: Estado de la cola en cache:');
     if (!global.spotifyQueueCache || global.spotifyQueueCache.length === 0) {
       console.log('   • Cola vacía');
     } else {
       console.log(`   • ${global.spotifyQueueCache.length} elementos en caché`);
     }
     
-    // 4. Intentar obtener la cola directamente
-    console.log('🔎 COLA: Intentando obtener directamente con petición HTTP...     ');
+    // 4. Obtener la cola actual de Spotify
+    console.log('🔍 COLA: Intentando obtener directamente con petición HTTP...');
+    
+    // Importar el helper de SpotifyHelpers para manejo de cola
+    const spotifyHelpers = require('../services/spotify/spotifyHelpers');
+    
     try {
-      // Usar el helper para obtener la cola con manejo mejorado de autenticación
-      const spotifyHelpers = require('../services/spotify/spotifyHelpers');
-      
-      // Intentar verificar y refrescar sesión si es necesario
-      await spotifyHelpers.verifySpotifySession();
+      // Verificar sesión antes de obtener la cola
+      await spotifyHelpers.verifySpotifySession(spotifyApi, userId);
       
       // Obtener cola con soporte de refresco de token automático
-      const queueData = await spotifyHelpers.getSpotifyQueue();
+      const queueData = await spotifyHelpers.getSpotifyQueue(spotifyApi, userId);
       
       if (queueData && queueData.queue) {
         console.log(`👉 COLA REAL SPOTIFY: ${queueData.queue.length} elementos encontrados`);
@@ -775,7 +770,7 @@ router.get('/queue', async (req, res) => {
           return true;
         });
         
-        console.log(`📊 Cola final después de eliminar duplicados: ${nextInQueue.length} elementos`);
+        console.log(`📈 Cola final después de eliminar duplicados: ${nextInQueue.length} elementos`);
         
         // Filtrar la canción actual de la cola
         if (currentlyPlaying && currentlyPlaying.uri) {
@@ -797,51 +792,49 @@ router.get('/queue', async (req, res) => {
         console.log('✅ COLA: Cola actualizada con datos directos de Spotify');
       } else {
         console.log('⚠️ COLA: Spotify no devolvió información de cola, usando cache');
+        // Mantener la cola existente en cache
+        nextInQueue = global.spotifyQueueCache || [];
       }
-    } catch (queueError) {
-      console.error('❌ Error al obtener cola de Spotify:', queueError.message || queueError);
+    } catch (spotifyQueueError) {
+      console.error('❌ Error al obtener cola de Spotify:', spotifyQueueError.message);
       console.log('💾 COLA: Usando información de caché como respaldo');
       
       // En caso de error, usamos nuestra caché global
-      if (global.spotifyQueueCache && global.spotifyQueueCache.length > 0) {
-        nextInQueue = global.spotifyQueueCache;
+      nextInQueue = global.spotifyQueueCache || [];
+    }
+    
+    // Construir respuesta
+    const response = {
+      currentlyPlaying,
+      nextInQueue,
+      // Incluir metadatos sobre el estado de la cola
+      _meta: {
+        userId,
+        timestamp: new Date().toISOString(),
+        queueSize: nextInQueue.length,
+        fromCache: nextInQueue === global.spotifyQueueCache
       }
-    }
+    };
     
-    // Mostrar estado final de la cola que vamos a enviar
-    console.log('📄 COLA: Cola final a enviar:');
-    if (nextInQueue.length === 0) {
-      console.log('   • Cola vacía');
-    } else {
-      nextInQueue.forEach((item, idx) => {
-        console.log(`   • Cola[${idx}]: ${item.name} - ${item.artist}`);
-      });
-    }
+    res.json(response);
     
-    console.log('📃 COLA: Enviando datos al cliente...');
-    console.log('   • Estado de reproducción:', currentlyPlaying ? (currentlyPlaying.isPlaying ? 'Reproduciendo' : 'Pausado') : 'Sin canción');
-    console.log('   • Canción actual:', currentlyPlaying ? `${currentlyPlaying.name} - ${currentlyPlaying.artist}` : 'Ninguna');
-    console.log('   • URI actual:', currentlyPlaying ? currentlyPlaying.uri : 'Ninguno');
-    console.log('   • Elementos en cola:', nextInQueue.length);
-    
-    // Incluye toda la información para depuración
-    console.log('DEBUG - Respuesta completa:', { 
-      currentlyPlaying,
-      nextInQueue 
-    });
-    
-    res.json({
-      currentlyPlaying,
-      nextInQueue
-    });
   } catch (error) {
-    console.error('⚠ Error al obtener cola:', error);
-    res.status(error.statusCode || 500).json({
-      error: 'Error al obtener la cola de reproducción', 
-      message: error.message
+    console.error('❌ Error general al obtener cola:', error.message || error);
+    
+    // En caso de error general, devolver lo que tengamos en cache
+    res.json({
+      currentlyPlaying: null,
+      nextInQueue: global.spotifyQueueCache || [],
+      _meta: {
+        error: true,
+        errorMessage: error.message || 'Error desconocido',
+        fromCache: true,
+        timestamp: new Date().toISOString()
+      }
     });
   }
 });
+
 /**
  * @route   POST /api/user/volume
  * @desc    Ajustar el volumen

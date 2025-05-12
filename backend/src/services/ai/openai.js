@@ -208,15 +208,23 @@ function processMessageSimple(message) {
   let responseMessage = 'No estoy seguro de lo que quieres hacer. Prueba con comandos como "reproducir rock" o "pausar música".';
   
   // Evaluar si el mensaje parece claramente una solicitud para añadir a la cola
+  // MEJORADO: Ahora detecta comandos simples como "cola [canción]" sin necesidad de verbos
   const isQueueRequest = 
-    // Contiene palabras relacionadas con la cola
+    // Caso 1: Palabra "cola" o "queue" al inicio del mensaje (comando simple)
+    lowerMessage.startsWith('cola ') || lowerMessage.startsWith('queue ') ||
+    
+    // Caso 2: Contiene palabras relacionadas con la cola
     (lowerMessage.includes('cola') || lowerMessage.includes('queue') ||
-     lowerMessage.includes('siguiente') && lowerMessage.includes('cancion')) && 
-    // Y contiene acciones típicas de agregar
+     lowerMessage.includes('siguiente') || lowerMessage.includes('después') ||
+     lowerMessage.includes('despues') || lowerMessage.includes('a continuación') ||
+     lowerMessage.includes('a continuacion')) && 
+    // Y contiene acciones típicas de agregar (opcional para comandos simples)
     (lowerMessage.includes('añade') || lowerMessage.includes('agregar') || 
      lowerMessage.includes('pon') || lowerMessage.includes('poner') ||
      lowerMessage.includes('añadir') || lowerMessage.includes('agrega') ||
-     lowerMessage.includes('coloca') || lowerMessage.includes('incluye'));
+     lowerMessage.includes('coloca') || lowerMessage.includes('incluye') ||
+     lowerMessage.includes('meter') || lowerMessage.includes('mete') ||
+     lowerMessage.includes('add'));
 
   // Añadir a la cola (si parece una solicitud de cola)
   if (isQueueRequest) {
@@ -224,8 +232,16 @@ function processMessageSimple(message) {
     let query = '';
     let matched = false;
 
-    // Buscar patrones comunes para añadir a la cola con regex
+    // MEJORADO: Patrones adicionales para comandos de cola
     const regexPatterns = [
+      // NUEVO: Comando simple "cola X" o "queue X"
+      /^cola\s+(.+)$/i,
+      /^queue\s+(.+)$/i,
+      
+      // NUEVO: Patrones con "a continuación/después"
+      /(pon|poner|coloca|colocar|añade|añadir|agrega|agregar|mete|meter)\s+(.+?)\s+(a\s+continuaci[oó]n|despu[eé]s)/i,
+      /(a\s+continuaci[oó]n|despu[eé]s)\s+(pon|poner|coloca|colocar|añade|añadir|agrega|agregar|mete|meter)\s+(.+)/i,
+      
       // Patrones como "añade X a la cola"
       /añade\s+(.+?)\s+(a\s+la\s+cola|en\s+la\s+cola|a\s+cola|en\s+cola)/i,
       /añadir\s+(.+?)\s+(a\s+la\s+cola|en\s+la\s+cola|a\s+cola|en\s+cola)/i,
@@ -235,16 +251,25 @@ function processMessageSimple(message) {
       /poner\s+(.+?)\s+(a\s+la\s+cola|en\s+la\s+cola|a\s+cola|en\s+cola)/i,
       /coloca\s+(.+?)\s+(a\s+la\s+cola|en\s+la\s+cola|a\s+cola|en\s+cola)/i,
       /incluye\s+(.+?)\s+(a\s+la\s+cola|en\s+la\s+cola|a\s+cola|en\s+cola)/i,
+      /mete\s+(.+?)\s+(a\s+la\s+cola|en\s+la\s+cola|a\s+cola|en\s+cola)/i,
+      /meter\s+(.+?)\s+(a\s+la\s+cola|en\s+la\s+cola|a\s+cola|en\s+cola)/i,
+      /add\s+(.+?)\s+(to\s+queue|to\s+the\s+queue)/i,
+      
       // Patrones invertidos como "a la cola añade X"
-      /(a\s+la\s+cola|en\s+la\s+cola)\s+(añade|agrega|pon)\s+(.+)/i,
+      /(a\s+la\s+cola|en\s+la\s+cola)\s+(añade|agrega|pon|mete)\s+(.+)/i,
+      
       // Patrones con "siguiente" 
-      /(pon|poner|coloca|colocar|añade|añadir|agrega|agregar)\s+(.+?)\s+como\s+(siguiente|próxima)\s+(canción|tema|pista)/i,
+      /(pon|poner|coloca|colocar|añade|añadir|agrega|agregar|mete|meter)\s+(.+?)\s+como\s+(siguiente|próxima)\s+(canción|tema|pista)/i,
+      /(pon|poner|coloca|colocar|añade|añadir|agrega|agregar|mete|meter)\s+(.+?)\s+(de\s+siguiente|de\s+próxima)/i,
+      
       // Comando simple queue
       /queue\s+(.+)$/i,
+      
       // Comando simple "a la cola"
-      /(añade|agrega|pon)\s+(a|en)\s+(la\s+)?(cola)\s+(.+)$/i,
+      /(añade|agrega|pon|mete)\s+(a|en)\s+(la\s+)?(cola)\s+(.+)$/i,
+      
       // Orden inverso
-      /(a|en)\s+(la\s+)?(cola)\s+(añade|agrega|pon)\s+(.+)$/i
+      /(a|en)\s+(la\s+)?(cola)\s+(añade|agrega|pon|mete)\s+(.+)$/i
     ];
     
     // Intentar encontrar coincidencia con regex
@@ -254,8 +279,23 @@ function processMessageSimple(message) {
         // Diferentes patrones tienen la consulta en diferentes grupos
         let extractedQuery = '';
         
+        // NUEVO: Comando simple "cola X" o "queue X"
+        if (pattern.toString().includes('^cola\\s+') || pattern.toString().includes('^queue\\s+')) {
+          extractedQuery = match[1].trim();
+          console.log(' DETECCIÓN: Comando simple cola/queue');
+        }
+        // NUEVO: Patrones con "a continuación/después"
+        else if (pattern.toString().includes('continuaci[oó]n|despu[eé]s')) {
+          if (match[2]) {
+            extractedQuery = match[2].trim();
+            console.log(' DETECCIÓN: Patrón a continuación/después');
+          } else if (match[3]) {
+            extractedQuery = match[3].trim();
+            console.log(' DETECCIÓN: Patrón invertido a continuación/después');
+          }
+        }
         // Patrón invertido: "a la cola añade X"
-        if (match[3] && (match[1] || '').includes('cola')) {
+        else if (match[3] && (match[1] || '').includes('cola')) {
           extractedQuery = match[3].trim();
           console.log(' DETECCIÓN: Patrón invertido de cola');
         }
@@ -287,7 +327,9 @@ function processMessageSimple(message) {
 
     // Si no se ha encontrado patrón, intentar método alternativo
     if (!matched) {
-      const queueTerms = ['cola', 'queue', 'añadir a la cola', 'agregar a la cola', 'en la cola'];
+      // MEJORADO: Términos adicionales para detección de cola
+      const queueTerms = ['cola', 'queue', 'añadir a la cola', 'agregar a la cola', 'en la cola', 
+                          'a continuación', 'a continuacion', 'después', 'despues', 'siguiente canción'];
       for (const term of queueTerms) {
         if (lowerMessage.includes(term)) {
           const parts = lowerMessage.split(term);
@@ -321,21 +363,23 @@ function processMessageSimple(message) {
       console.log(' RESULTADO: Consulta para cola encontrada =>', query);
       // Procesar consulta para detectar múltiples canciones
       const songQueries = [];
-      // Buscar patrones de separación de canciones
+      // MEJORADO: Buscar patrones de separación de canciones
       // 1. Canciones separadas por 'y', 'and', 'también', etc.
       // Agrego más patrones y hago que los separadores sean menos estrictos
-      const splitByConjunctions = query.split(/\s*y\s+|\s+and\s+|\s+tambi[eé]n\s+|\s+junto\s+con\s+|\s+adem[aá]s\s+de\s+|\s*&\s*|\s+m[aá]s\s+|\s*\+\s*/i);
-      // 2. Canciones separadas por comas
+      const splitByConjunctions = query.split(/\s*y\s+|\s+and\s+|\s+tambi[eé]n\s+|\s+junto\s+con\s+|\s+adem[aá]s\s+de\s+|\s*&\s*|\s+m[aá]s\s+|\s*\+\s*|\s+luego\s+|\s+despu[eé]s\s+|\s+seguido\s+de\s+/i);
+      // 2. Canciones separadas por comas o punto y coma
       let processedQueries = [];
       splitByConjunctions.forEach(part => {
-        // Divide por comas, pero no dentro de frases como "Guns N' Roses"
-        const comaSplit = part.split(/,\s*(?![^()]*\))/);
+        // MEJORADO: Divide por comas o punto y coma, pero no dentro de frases como "Guns N' Roses"
+        const comaSplit = part.split(/[,;]\s*(?![^()]*\))/);
         processedQueries = [...processedQueries, ...comaSplit];
       });
       // Limpiar y agregar cada consulta
       processedQueries.forEach(songQuery => {
         const cleanQuery = songQuery.trim();
-        if (cleanQuery && cleanQuery.length > 1) { // Evitar añadir consultas vacías o muy cortas
+        // MEJORADO: Filtrar palabras vacías y conectores que quedaron aislados
+        if (cleanQuery && cleanQuery.length > 1 && 
+            !['y', 'and', 'también', 'tambien', 'luego', 'después', 'despues', 'mas', 'más'].includes(cleanQuery.toLowerCase())) {
           songQueries.push(cleanQuery);
         }
       });
@@ -351,9 +395,18 @@ function processMessageSimple(message) {
         songQueries.forEach((song, index) => {
           console.log(`   • [${index + 1}] ${song}`);
         });
-        action = 'queue_multiple';
+        // MEJORADO: Usar acción multi_queue en lugar de queue_multiple para consistencia
+        action = 'multi_queue';
         parameters = { queries: songQueries };
-        responseMessage = `Añadiendo ${songQueries.length} canciones a la cola de reproducción: ${songQueries.map(q => `"${q}"`).join(', ')}`;
+        
+        // Limitar el número de canciones mostradas en la respuesta para mensajes más cortos
+        let displaySongs = songQueries;
+        if (songQueries.length > 3) {
+          displaySongs = songQueries.slice(0, 3);
+          responseMessage = `Añadiendo ${songQueries.length} canciones a la cola: ${displaySongs.map(q => `"${q}"`).join(', ')} y ${songQueries.length - 3} más`;
+        } else {
+          responseMessage = `Añadiendo ${songQueries.length} canciones a la cola: ${displaySongs.map(q => `"${q}"`).join(', ')}`;
+        }
       }
       else {
         action = 'info';

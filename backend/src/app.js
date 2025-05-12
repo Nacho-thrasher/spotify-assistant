@@ -7,6 +7,7 @@ require('dotenv').config();
 
 // Importar configuraciones
 const configureSession = require('./config/session');
+const { ensureUserId } = require('./middleware/userIdentification');
 
 // Importar rutas
 const authRoutes = require('./api/auth');
@@ -28,6 +29,9 @@ app.use(morgan('dev')); // Logs coloridos para desarrollo
 
 // Configuración de sesiones con Redis
 configureSession(app);
+
+// Middleware para asegurar que cada solicitud tenga un ID de usuario
+app.use(ensureUserId);
 
 // Servir archivos estáticos desde la carpeta public
 app.use(express.static(path.join(__dirname, 'public')));

@@ -13,15 +13,17 @@ const userHistory = require('../services/history/userHistory');
  */
 router.get('/debug', async (req, res) => {
   try {
-    // Extraer el ID de usuario de todas las posibles fuentes
+    // Ahora el ID de usuario viene garantizado por el middleware
+    const userId = req.userId;
+    
+    // Para propósitos de depuración, mostramos de dónde se obtuvo originalmente
     const fromUser = req.user?.id || null;
     const fromSession = req.session?.userId || null;
     const fromHeaders = req.headers['user-id'] || null;
-    const combinedUserId = fromUser || fromSession || fromHeaders;
     
     // Revisar el historial existente en Redis
-    const historyKey = `history:${combinedUserId}`;
-    const historyExists = combinedUserId ? await require('../config/redis').redisClient.exists(historyKey) : false;
+    const historyKey = `history:${userId}`;
+    const historyExists = userId ? await require('../config/redis').redisClient.exists(historyKey) : false;
     const itemCount = historyExists ? await require('../config/redis').redisClient.llen(historyKey) : 0;
     
     // Listar todos los keys de history: en Redis
@@ -55,7 +57,7 @@ router.get('/debug', async (req, res) => {
  */
 router.post('/test', async (req, res) => {
   try {
-    const userId = req.user?.id || req.session.userId || req.headers['user-id'];
+    const userId = req.userId; // Ahora viene garantizado por el middleware de identificación
     
     if (!userId) {
       return res.status(401).json({
@@ -110,7 +112,7 @@ router.post('/test', async (req, res) => {
  */
 router.get('/commands', async (req, res) => {
   try {
-    const userId = req.user?.id || req.session.userId || req.headers['user-id'];
+    const userId = req.userId; // Ahora viene garantizado por el middleware de identificación
     
     if (!userId) {
       return res.status(401).json({ 
@@ -147,7 +149,7 @@ router.get('/commands', async (req, res) => {
  */
 router.get('/artists', async (req, res) => {
   try {
-    const userId = req.user?.id || req.session.userId || req.headers['user-id'];
+    const userId = req.userId; // Ahora viene garantizado por el middleware de identificación
     
     if (!userId) {
       return res.status(401).json({ 
@@ -184,7 +186,7 @@ router.get('/artists', async (req, res) => {
  */
 router.get('/recent', async (req, res) => {
   try {
-    const userId = req.user?.id || req.session.userId || req.headers['user-id'];
+    const userId = req.userId; // Ahora viene garantizado por el middleware de identificación
     
     if (!userId) {
       return res.status(401).json({ 
@@ -222,7 +224,7 @@ router.get('/recent', async (req, res) => {
  */
 router.delete('/', async (req, res) => {
   try {
-    const userId = req.user?.id || req.session.userId || req.headers['user-id'];
+    const userId = req.userId; // Ahora viene garantizado por el middleware de identificación
     
     if (!userId) {
       return res.status(401).json({ 
@@ -260,7 +262,7 @@ router.delete('/', async (req, res) => {
  */
 router.delete('/item/:itemId', async (req, res) => {
   try {
-    const userId = req.user?.id || req.session.userId || req.headers['user-id'];
+    const userId = req.userId; // Ahora viene garantizado por el middleware de identificación
     const { itemId } = req.params;
 
     if (!userId) {

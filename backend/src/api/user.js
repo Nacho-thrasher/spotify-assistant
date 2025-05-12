@@ -822,29 +822,14 @@ router.get('/queue', async (req, res) => {
           uri: track.uri
         }));
         
-        // Solo eliminamos duplicados consecutivos (extremadamente raros en Spotify)
-        // pero mantenemos el resto de canciones intactas, incluso si tienen el mismo URI
-        // para mantener la coherencia con la app oficial de Spotify
-        if (nextInQueue.length > 1) {
-          const filteredQueue = [];
-          let prevTrack = null;
-          
-          for (let i = 0; i < nextInQueue.length; i++) {
-            const currentTrack = nextInQueue[i];
-            
-            // Solo filtramos cuando hay dos canciones idénticas seguidas
-            if (prevTrack && prevTrack.uri === currentTrack.uri && 
-                prevTrack.name === currentTrack.name) {
-              console.log(`🔎 Eliminando duplicado consecutivo real: ${currentTrack.name}`);
-            } else {
-              filteredQueue.push(currentTrack);
-              prevTrack = currentTrack;
-            }
-          }
-          
-          // Actualizar la lista de canciones filtradas
-          nextInQueue = filteredQueue;
-        }
+        // IMPORTANTE: NO APLICAMOS FILTROS NI MODIFICACIONES AL ORDEN
+        // Respetamos estrictamente el orden enviado por la API de Spotify
+        // para que coincida exactamente con la app oficial
+        
+        console.log('Respetando estrictamente el orden de canciones de Spotify:');
+        nextInQueue.forEach((track, index) => {
+          console.log(`  ${index + 1}. ${track.name} - ${track.artist}`);
+        });
         
         console.log(`📈 Cola actual de Spotify: ${nextInQueue.length} elementos`);
         

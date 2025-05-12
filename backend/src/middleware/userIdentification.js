@@ -1,16 +1,15 @@
 /**
- * Middleware para la identificación consistente de usuarios
- * Asegura que cada solicitud tenga un ID de usuario válido y único
+ * Middleware para identificación de usuarios
+ * Garantiza que cada petición tenga un userId consistente
  */
-
 const crypto = require('crypto');
 
-// ID de usuario por defecto solo para pruebas - NO USAR en producción
-const DEFAULT_USER_ID = 'guest';
+// Constante para el ID de usuario por defecto durante desarrollo
+const DEFAULT_USER_ID = 'nacho';
 
 /**
- * Genera un ID único para un usuario basado en información de sesión
- * @param {Object} req - La solicitud HTTP
+ * Genera un identificador único para un usuario basado en su IP
+ * @param {Object} req - Objeto de solicitud Express
  * @returns {string} - Un ID de usuario único
  */
 const generateUniqueUserId = (req) => {
@@ -42,113 +41,84 @@ const generateUniqueUserId = (req) => {
 };
 
 /**
- * Middleware que asegura que cada solicitud tenga un ID de usuario válido
- * El ID se almacena en req.userId para un acceso consistente
+ * Middleware para asegurar que cada solicitud tenga un ID de usuario
+ * Si no tiene un ID, le asigna uno basado en la IP y cookies
  */
 const ensureUserId = (req, res, next) => {
-  // Obtener el ID real de Spotify de todas las posibles fuentes
-  const spotifyUserId = req.session?.spotifyUserId || 
-                        (req.cookies && req.cookies.spotifyUserId);
-  
-  // Obtener el ID alternativo (generado localmente) si no hay ID de Spotify
-  const cookieUserId = req.cookies && req.cookies.userId;
-  
-  // Nueva prioridad de fuentes para el ID de usuario
+  // Comprobar múltiples fuentes de ID de usuario (en orden de prioridad)
   req.userId = 
-    // 1. PRIORIDAD MÁXIMA: ID real de Spotify (de sesión o cookie)
-    spotifyUserId ||
-    // 2. Si hay un usuario autenticado de otra forma
-    req.user?.id || 
-    // 3. Si hay un ID en la sesión
+    // 1. ID real de Spotify (prioridad máxima)
+    req.session?.spotifyUserId || 
+    (req.signedCookies && req.signedCookies.spotifyUserId) ||
+    (req.cookies && req.cookies.spotifyUserId) ||
+    
+    // 2. ID generado previamente
+    req.userId || 
+    (req.signedCookies && req.signedCookies.userId) ||
+    (req.cookies && req.cookies.userId) ||
     req.session?.userId || 
-    // 4. Si hay un ID en cookies (nuevo)
-    cookieUserId ||
-    // 5. Si se proporcionó explícitamente en los headers
+    
+    // 3. Otros lugares donde podría estar
+    req.user?.id || 
     req.headers['user-id'];
   
-  // Si no tenemos un ID de usuario, intentamos obtenerlo del cliente o creamos uno
-  if (!req.userId) {
-    // Intentar obtener un identificador de la cookie firmada primero
-    const signedCookieUserId = req.signedCookies && req.signedCookies.userId;
-    
-    // Si ya tenemos una cookie firmada, usarla con prioridad
-    if (signedCookieUserId) {
-      req.userId = signedCookieUserId;
-      console.log(`Restaurado ID de usuario desde cookie firmada: ${req.userId}`);
+  // Si encontramos un ID en alguna de las fuentes, usarlo
+  if (req.userId) {
+    console.log(`Usando ID de usuario existente: ${req.userId}`);
+  }
+  // Si no hay ID, generamos uno nuevo
+  else {
+    if (process.env.NODE_ENV === 'production') {
+      // En producción, generar ID basado en IP
+      req.userId = generateUniqueUserId(req);
     } else {
-      // En último caso, generar uno nuevo
-      if (process.env.NODE_ENV === 'production') {
-        // En producción, generamos un ID único para este usuario/dispositivo
-        req.userId = generateUniqueUserId(req);
-      } else {
-        // En desarrollo, usamos un ID predeterminado para pruebas
-        req.userId = DEFAULT_USER_ID;
-      }
-      
-      console.log(`Generado nuevo ID de usuario: ${req.userId}`);
+      // En desarrollo, usar ID fijo para pruebas
+      req.userId = DEFAULT_USER_ID;
     }
-    
-    // IMPORTANTE: Guardar el ID en TODOS los lugares posibles para maximizar persistencia
-    // 1. Guardar en sesión
-    if (req.session) {
-      req.session.userId = req.userId;
-      // Forzar guardado de sesión de inmediato
-      if (req.session.save) {
-        req.session.save();
-      }
-    }
-    
-    // 2. Guardar en cookie directa Y firmada (dura 30 días)
-    const COOKIE_OPTIONS = {
-      maxAge: 1000 * 60 * 60 * 24 * 30, // 30 días
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-    };
-    
-    // Cookie sin firmar (para compatibilidad)
-    res.cookie('userId', req.userId, COOKIE_OPTIONS);
-    
-    // Cookie firmada (más segura)
-    res.cookie('userId', req.userId, { 
-      ...COOKIE_OPTIONS,
-      signed: true 
-    });
-  } else {
-    // IMPORTANTE: Asegurar que todos los lugares tengan el mismo ID
-    // Si tenemos un ID pero no está en sesion o cookie, actualizarlos
-    if (req.session && req.session.userId !== req.userId) {
-      req.session.userId = req.userId;
-      // Forzar guardado de sesión de inmediato
-      if (req.session.save) {
-        req.session.save();
-      }
-    }
-    
-    // Solo actualizar cookies si son diferentes del ID actual
-    const COOKIE_OPTIONS = {
-      maxAge: 1000 * 60 * 60 * 24 * 30, // 30 días
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-    };
-    
-    if (!cookieUserId || cookieUserId !== req.userId) {
-      res.cookie('userId', req.userId, COOKIE_OPTIONS);
-    }
-    
-    // Actualizar cookie firmada si es necesario
-    const signedCookieUserId = req.signedCookies && req.signedCookies.userId;
-    if (!signedCookieUserId || signedCookieUserId !== req.userId) {
-      res.cookie('userId', req.userId, { 
-        ...COOKIE_OPTIONS,
-        signed: true 
-      });
+    console.log(`Generado nuevo ID de usuario: ${req.userId}`);
+  }
+  
+  // IMPORTANTE: Guardar el ID en TODOS los lugares posibles para maximizar persistencia
+  
+  // 1. Guardar en sesión
+  if (req.session) {
+    req.session.userId = req.userId;
+    // Forzar guardado de sesión inmediato si disponible
+    if (req.session.save) {
+      req.session.save();
     }
   }
   
+  // 2. Configuración común para todas las cookies
+  const COOKIE_OPTIONS = {
+    maxAge: 1000 * 60 * 60 * 24 * 30, // 30 días
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+  };
+  
+  // 3. Guardar en cookies (sin firmar y firmadas)
+  
+  // Cookie normal (sin firmar)
+  res.cookie('userId', req.userId, COOKIE_OPTIONS);
+  
+  // Cookie firmada (más segura)
+  res.cookie('userId', req.userId, {
+    ...COOKIE_OPTIONS,
+    signed: true
+  });
+  
+  // 4. Si hay un ID de Spotify, también guardarlo en cookies
+  if (req.session?.spotifyUserId) {
+    res.cookie('spotifyUserId', req.session.spotifyUserId, COOKIE_OPTIONS);
+    res.cookie('spotifyUserId', req.session.spotifyUserId, {
+      ...COOKIE_OPTIONS,
+      signed: true
+    });
+  }
+  
+  // Continuar con la siguiente función
   next();
 };
 

@@ -585,6 +585,11 @@ router.post('/queue', async (req, res) => {
       }
     }
 
+    // Invalidar explícitamente la caché de la cola para este usuario
+    const spotifyCache = require('../services/cache/spotifyCache');
+    await spotifyCache.invalidateCache('queue', userId);
+    console.log(`🔄 Caché de cola invalidada para usuario ${userId}`);
+    
     // Después de añadir a la cola, obtener la cola actualizada
     const queue = await spotifyApi.getMyCurrentPlaybackState();
     res.json({ success: true, message: 'Canción añadida a la cola correctamente' });

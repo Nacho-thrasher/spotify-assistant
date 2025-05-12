@@ -26,8 +26,19 @@ router.get('/profile', async (req, res) => {
     const data = await spotifyApi.getMe();
     res.json(data.body);
   } catch (error) {
-    console.error('Error al obtener perfil:', error);
-    res.status(500).json({ error: 'Error al obtener perfil', message: error.message });
+    console.error('Error al obtener perfil de usuario:', error);
+    
+    // Diferenciar entre errores de autenticación y otros errores
+    if (error.message && error.message.includes('no autenticado con Spotify')) {
+      // Error de usuario no autenticado
+      return res.status(401).json({
+        error: 'Usuario no autenticado',
+        message: 'Debe iniciar sesión con Spotify para acceder a esta funcionalidad',
+        requiresAuth: true
+      });
+    }
+    
+    res.status(500).json({ error: 'Error al obtener perfil de usuario', message: error.message });
   }
 });
 
@@ -59,6 +70,17 @@ router.get('/now-playing', async (req, res) => {
     res.json(data.body);
   } catch (error) {
     console.error('Error al obtener canción actual:', error);
+    
+    // Diferenciar entre errores de autenticación y otros errores
+    if (error.message && error.message.includes('no autenticado con Spotify')) {
+      // Error de usuario no autenticado
+      return res.status(401).json({
+        error: 'Usuario no autenticado',
+        message: 'Debe iniciar sesión con Spotify para acceder a esta funcionalidad',
+        requiresAuth: true
+      });
+    }
+    
     res.status(500).json({ error: 'Error al obtener canción actual', message: error.message });
   }
 });

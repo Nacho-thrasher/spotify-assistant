@@ -15,12 +15,14 @@ const DEFAULT_USER_ID = 'guest';
  */
 const generateUniqueUserId = (req) => {
   // Usar un hash del IP + user agent para crear un identificador único para invitados
+  // Ya NO agregamos Date.now() para que el ID sea consistente entre solicitudes del mismo cliente
   const ip = req.ip || req.connection.remoteAddress || 'unknown';
   const userAgent = req.headers['user-agent'] || 'unknown';
+  const sessionKey = req.sessionID || ''; // Usar ID de sesión si está disponible
   
   return crypto
     .createHash('sha256')
-    .update(`${ip}-${userAgent}-${Date.now()}`)
+    .update(`${ip}-${userAgent}-${sessionKey}`)
     .digest('hex')
     .substring(0, 24); // Un ID de tamaño razonable
 };

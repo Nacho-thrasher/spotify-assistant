@@ -759,10 +759,35 @@ router.get('/queue', async (req, res) => {
     
     try {
       // Verificar sesión antes de obtener la cola
-      await spotifyHelpers.verifySpotifySession(spotifyApi, userId);
+      const sessionValid = await spotifyHelpers.verifySpotifySession(spotifyApi, userId);
+      if (!sessionValid) {
+        console.error(`🔴 Sesión inválida para ${userId} al obtener cola - token no válido o expirado`);
+        return res.status(401).json({
+          error: 'Sesión expirada',
+          message: 'Tu sesión con Spotify ha expirado. Por favor, inicia sesión nuevamente.',
+          requiresAuth: true
+        });
+      }
+      
+      console.log(`🔵 Obteniendo cola para usuario ${userId}...`); 
       
       // Obtener cola con soporte de refresco de token automático
-      const queueData = await spotifyHelpers.getQueue(spotifyApi);
+      let queueData;
+      try {
+        queueData = await spotifyHelpers.getQueue(spotifyApi);
+      } catch (queueError) {
+        console.error(`🔴 Error al obtener cola:`, queueError.message || queueError);
+        
+        // Si el error es de dispositivo no activo, enviar mensaje más amigable
+        if (queueError.message && queueError.message.includes('404')) {
+          return res.status(404).json({
+            error: 'No hay dispositivo activo',
+            message: 'Para ver la cola de reproducción, necesitas tener Spotify abierto en algún dispositivo',
+          });
+        }
+        
+        throw queueError; // Re-lanzar para que lo maneje el catch principal
+      }
       
       if (queueData && queueData.queue) {
         console.log(`👉 COLA REAL SPOTIFY: ${queueData.queue.length} elementos encontrados`);
@@ -773,6 +798,7 @@ router.get('/queue', async (req, res) => {
           artist: track.artists[0].name,
           album: track.album.name,
           image: track.album.images[0]?.url,
+          duration_ms: track.duration_ms,
           uri: track.uri
         }));
         

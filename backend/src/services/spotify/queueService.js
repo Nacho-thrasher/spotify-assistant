@@ -26,14 +26,36 @@ const getQueue = async (userId) => {
         // Obtener instancia de Spotify para este usuario
         const spotifyApi = await spotifyManager.getInstance(userId);
         
-        // Intentar verificar la sesión primero
-        const sessionValid = await spotifyHelpers.verifySpotifySession(spotifyApi, userId);
-        if (!sessionValid) {
-          throw new Error('Sesión de Spotify no válida');
+        // Intentar verificar la sesión primero - con logs mejorados
+        try {
+          const sessionValid = await spotifyHelpers.verifySpotifySession(spotifyApi, userId);
+          if (!sessionValid) {
+            console.error(`🔴 Error: Sesión de Spotify no válida para usuario ${userId}`);
+            throw new Error(`Sesión de Spotify no válida para usuario ${userId}`);
+          }
+          console.log(`✅ Sesión de Spotify válida para usuario ${userId}`);
+        } catch (sessionError) {
+          console.error(`🔴 Error al verificar sesión de Spotify: ${sessionError.message}`);
+          throw sessionError; // Re-lanzar para manejo adecuado
         }
         
-        // Obtener cola con soporte de refresco de token automático
-        return await spotifyHelpers.getQueue(spotifyApi);
+        // Obtener cola con soporte de refresco de token automático - con mejor manejo de errores
+        try {
+          console.log(`🔍 Obteniendo cola para ${userId}...`);
+          const queueData = await spotifyHelpers.getQueue(spotifyApi);
+          console.log(`✅ Cola obtenida exitosamente para ${userId}`);
+          return queueData;
+        } catch (queueError) {
+          console.error(`❌ Error al obtener cola: ${queueError.message}`);
+          // Enriquecer mensaje de error para mejor diagnóstico
+          if (queueError.message.includes('401')) {
+            throw new Error('Token expirado o inválido: ' + queueError.message);
+          } else if (queueError.message.includes('404')) {
+            throw new Error('No hay dispositivo activo: ' + queueError.message);
+          } else {
+            throw queueError; // Re-lanzar otros errores
+          }
+        }
       },
       {},
       10 // 10 segundos de caché

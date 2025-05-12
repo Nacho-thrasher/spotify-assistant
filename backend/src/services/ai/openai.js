@@ -501,7 +501,7 @@ async function processMessageSimple(message, userId = 'anonymous') {
       // MEJORADO: Buscar patrones de separación de canciones
       // 1. Canciones separadas por 'y', 'and', 'también', etc.
       // Agrego más patrones y hago que los separadores sean menos estrictos
-      const splitByConjunctions = query.split(/\s*y\s+|\s+and\s+|\s+tambi[eé]n\s+|\s+junto\s+con\s+|\s+adem[aá]s\s+de\s+|\s*&\s*|\s+m[aá]s\s+|\s*\+\s*|\s+luego\s+|\s+despu[eé]s\s+|\s+seguido\s+de\s+/i);
+      const splitByConjunctions = query.split(/\s*y\s+|\s+and\s+|\s+tambi[eé]n\s+|\s+junto\s+con\s+|\s+adem[aá]s\s+de\s+|\s*&\s*|\s+m[aá]s\s+|\s*\+\s*|\s*luego\s+|\s+despu[eé]s\s+|\s+seguido\s+de\s+/i);
       // 2. Canciones separadas por comas o punto y coma
       let processedQueries = [];
       splitByConjunctions.forEach(part => {
@@ -685,6 +685,19 @@ async function processMessageSimple(message, userId = 'anonymous') {
            (lowerMessage.includes('cola') || lowerMessage.includes('queue'))) {
     action = 'clear_queue';
     responseMessage = 'Limpiando la cola de reproducción';
+  }
+  // Preguntas sobre la canción actual
+  else if (lowerMessage.includes('canción actual') || lowerMessage.includes('cancion actual') ||
+           lowerMessage.match(/qué canción/) || lowerMessage.match(/que canción/) ||
+           lowerMessage.match(/que cancion/) || lowerMessage.match(/qué cancion/) ||
+           lowerMessage.includes('qué tema') || lowerMessage.includes('que tema') ||
+           lowerMessage.includes('detalles de la canción actual') ||
+           lowerMessage.includes('muestra detalles') ||
+           lowerMessage.includes('qué canción es esta') || lowerMessage.includes('que canción es esta') ||
+           lowerMessage.includes('que cancion es esta') || lowerMessage.includes('qué cancion es esta')) {
+    action = 'get_info';
+    parameters = { infoType: 'track', subject: 'current' };
+    responseMessage = 'Mostrando detalles de la canción actual';
   }
   // Comandos "más como esto" - recomendaciones basadas en lo actual
   else if (lowerMessage.includes('más como') || lowerMessage.includes('similar') || 

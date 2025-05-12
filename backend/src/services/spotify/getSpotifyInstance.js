@@ -33,21 +33,31 @@ const hasValidTokens = async (userId) => {
  * @throws {Error} - Si requireAuth es true y el usuario no tiene tokens válidos
  */
 const getSpotifyForRequest = async (req, requireAuth = true) => {
-  // Obtener userId con prioridad para el valor asignado por el middleware
+  // PRIORIDAD 1: Buscar primero el ID real de Spotify (solución ideal)
+  const spotifyUserId = req.session?.spotifyUserId || 
+                        (req.cookies && req.cookies.spotifyUserId);
+  
+  // PRIORIDAD 2: Usar el userId asignado por el middleware (que ya tiene prioridad para Spotify ID)
   const userId = req.userId || 
                  req.user?.id || 
                  req.session?.userId || 
                  req.headers['user-id'] || 
                  'guest';
-                 
-  console.log(`Obteniendo instancia de Spotify para usuario: ${userId}`);
   
-  // Verificar si el usuario tiene tokens antes de intentar usar la API
-  if (requireAuth && !(await hasValidTokens(userId))) {
-    throw new Error(`Usuario ${userId} no autenticado con Spotify. Se requiere iniciar sesión.`);
+  // Usar el ID de Spotify si está disponible, de lo contrario usar el ID local
+  const effectiveUserId = spotifyUserId || userId;
+                 
+  console.log(`Obteniendo instancia de Spotify para usuario: ${effectiveUserId}`);
+  if (spotifyUserId) {
+    console.log(`(Usando ID real de Spotify)`); 
   }
   
-  return await spotifyManager.getInstance(userId);
+  // Verificar si el usuario tiene tokens antes de intentar usar la API
+  if (requireAuth && !(await hasValidTokens(effectiveUserId))) {
+    throw new Error(`Usuario ${effectiveUserId} no autenticado con Spotify. Se requiere iniciar sesión.`);
+  }
+  
+  return await spotifyManager.getInstance(effectiveUserId);
 };
 
 module.exports = getSpotifyForRequest;

@@ -31,18 +31,24 @@ const generateUniqueUserId = (req) => {
  * El ID se almacena en req.userId para un acceso consistente
  */
 const ensureUserId = (req, res, next) => {
-  // MEJORADO: Agregar cookie directa como fuente adicional de persistencia
+  // Obtener el ID real de Spotify de todas las posibles fuentes
+  const spotifyUserId = req.session?.spotifyUserId || 
+                        (req.cookies && req.cookies.spotifyUserId);
+  
+  // Obtener el ID alternativo (generado localmente) si no hay ID de Spotify
   const cookieUserId = req.cookies && req.cookies.userId;
   
-  // Prioridad de fuentes para el ID de usuario
+  // Nueva prioridad de fuentes para el ID de usuario
   req.userId = 
-    // 1. Si hay un usuario autenticado
+    // 1. PRIORIDAD MÁXIMA: ID real de Spotify (de sesión o cookie)
+    spotifyUserId ||
+    // 2. Si hay un usuario autenticado de otra forma
     req.user?.id || 
-    // 2. Si hay un ID en la sesión
+    // 3. Si hay un ID en la sesión
     req.session?.userId || 
-    // 3. Si hay un ID en cookies (nuevo)
+    // 4. Si hay un ID en cookies (nuevo)
     cookieUserId ||
-    // 4. Si se proporcionó explícitamente en los headers
+    // 5. Si se proporcionó explícitamente en los headers
     req.headers['user-id'];
   
   // Si no tenemos un ID de usuario, creamos uno y lo guardamos en la sesión

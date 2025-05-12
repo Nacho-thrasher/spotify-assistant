@@ -185,6 +185,13 @@ const spotifyApiProxy = {
     return await getSpotifyApiForUser(userId);
   },
   
+  // Crea una instancia temporal con un token de acceso (sin persistencia)
+  async createTempInstance(accessToken) {
+    const spotifyApi = createSpotifyInstance();
+    spotifyApi.setAccessToken(accessToken);
+    return spotifyApi;
+  },
+  
   // Setters para mantener la compatibilidad con código existente
   async setTokensForUser(userId, accessToken, refreshToken, expiresIn) {
     return await setUserTokens(userId, accessToken, refreshToken, expiresIn);

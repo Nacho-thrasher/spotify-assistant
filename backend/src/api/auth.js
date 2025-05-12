@@ -49,12 +49,29 @@ router.get('/callback', async (req, res) => {
     const data = await spotifyManager.authorizationCodeGrant(code);
     const { access_token, refresh_token, expires_in } = data.body;
     
-    // Obtener el ID de usuario de la sesión (asegurado por el middleware)
-    const userId = req.userId;
-    console.log(`Usuario autenticado: ${userId}`);
+    // Crear una instancia temporal de SpotifyAPI para obtener el perfil de usuario
+    const tempSpotifyApi = await spotifyManager.createTempInstance(access_token);
     
-    // Guardar tokens asociados al usuario específico
-    await spotifyManager.setTokensForUser(userId, access_token, refresh_token, expires_in);
+    // Obtener el ID real de Spotify desde el perfil del usuario
+    const userProfile = await tempSpotifyApi.getMe();
+    const spotifyUserId = userProfile.body.id;
+    
+    console.log(`Usuario autenticado con Spotify ID: ${spotifyUserId}`);
+    
+    // IMPORTANTE: Guardar en la sesión el ID real de Spotify
+    if (req.session) {
+      req.session.spotifyUserId = spotifyUserId;
+    }
+    
+    // Guardar también en una cookie para mayor persistencia
+    res.cookie('spotifyUserId', spotifyUserId, {
+      maxAge: 1000 * 60 * 60 * 24 * 30, // 30 días
+      httpOnly: true,
+      sameSite: 'lax'
+    });
+    
+    // Guardar tokens asociados al ID real de Spotify (no al ID generado localmente)
+    await spotifyManager.setTokensForUser(spotifyUserId, access_token, refresh_token, expires_in);
     
     // En una aplicación real, aquí deberías:
     // 1. Guardar tokens en una base de datos asociados al usuario

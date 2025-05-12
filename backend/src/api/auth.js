@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const spotifyApi = require('../config/spotify');
+// Reemplazar la instancia única por el administrador de instancias
+const spotifyManager = require('../services/spotify/spotifyManager');
 
 /**
  * @route   GET /api/auth/login
@@ -32,7 +33,7 @@ router.get('/login', (req, res) => {
   ];
   
   // Crear URL de autorización y redirigir al usuario
-  res.redirect(spotifyApi.createAuthorizeURL(scopes));
+  res.redirect(spotifyManager.createAuthorizeURL(scopes));
 });
 
 /**
@@ -45,12 +46,15 @@ router.get('/callback', async (req, res) => {
   
   try {
     // Intercambiar código por tokens
-    const data = await spotifyApi.authorizationCodeGrant(code);
+    const data = await spotifyManager.authorizationCodeGrant(code);
     const { access_token, refresh_token, expires_in } = data.body;
     
-    // Guardar tokens en la instancia de la API
-    spotifyApi.setAccessToken(access_token);
-    spotifyApi.setRefreshToken(refresh_token);
+    // Obtener el ID de usuario de la sesión (asegurado por el middleware)
+    const userId = req.userId;
+    console.log(`Usuario autenticado: ${userId}`);
+    
+    // Guardar tokens asociados al usuario específico
+    await spotifyManager.setTokensForUser(userId, access_token, refresh_token, expires_in);
     
     // En una aplicación real, aquí deberías:
     // 1. Guardar tokens en una base de datos asociados al usuario
@@ -104,9 +108,19 @@ router.post('/refresh-token', async (req, res) => {
   // en lugar de recibirlo en la solicitud
   
   try {
+    // Obtener userId de la solicitud
+    const userId = req.userId;
+    
+    // Primero actualizamos el refresh token para este usuario
+    const spotifyApi = await spotifyManager.getInstance(userId);
     spotifyApi.setRefreshToken(refresh_token);
+    
+    // Luego renovamos el token
     const data = await spotifyApi.refreshAccessToken();
     const { access_token, expires_in } = data.body;
+    
+    // Guardar el nuevo access token para este usuario
+    await spotifyManager.setTokensForUser(userId, access_token, refresh_token, expires_in);
     
     res.json({
       access_token,

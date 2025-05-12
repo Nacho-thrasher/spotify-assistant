@@ -6,7 +6,8 @@
 const express = require('express');
 const router = express.Router();
 const { redisClient, getAsync, setAsync, DEFAULT_EXPIRATION } = require('../config/redis');
-const cacheService = require('../services/cache/cacheService');
+// Corregir la ruta - el archivo está directamente en /services, no en /services/cache
+const cacheService = require('../services/cacheService');
 const getSpotifyForRequest = require('../services/spotify/getSpotifyInstance');
 const queueService = require('../services/spotify/queueService');
 

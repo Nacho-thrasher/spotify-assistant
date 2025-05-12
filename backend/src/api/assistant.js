@@ -455,6 +455,279 @@ router.post('/message', async (req, res) => {
           }
         }
         break;
+        
+      case 'recommendations':
+        console.log('🎶 SPOTIFY: Generando recomendaciones musicales');
+        try {
+          // Obtener recomendaciones basadas en la canción actual o en parámetros
+          let seedTracks = [];
+          let seedArtists = [];
+          let seedGenres = [];
+          
+          // Si hay una canción en reproducción, usarla como semilla
+          if (playbackContext?.currentlyPlaying?.id) {
+            seedTracks.push(playbackContext.currentlyPlaying.id);
+            console.log('   • Usando canción actual como semilla:', playbackContext.currentlyPlaying.name);
+          }
+          // Si se proporcionó una canción específica como semilla
+          else if (parameters?.trackId) {
+            seedTracks.push(parameters.trackId);
+            console.log('   • Usando canción específica como semilla:', parameters.trackId);
+          }
+          // Si se proporcionó un artista como semilla
+          else if (parameters?.artistId) {
+            seedArtists.push(parameters.artistId);
+            console.log('   • Usando artista como semilla:', parameters.artistId);
+          }
+          // Si se proporcionó un género como semilla
+          else if (parameters?.genre) {
+            seedGenres.push(parameters.genre);
+            console.log('   • Usando género como semilla:', parameters.genre);
+          }
+          // Si no hay semillas, intentar buscar por consulta
+          else if (parameters?.query) {
+            // Buscar la canción o artista para usar como semilla
+            const searchResults = await spotifyApi.search(parameters.query, ['track', 'artist'], { limit: 1 });
+            
+            if (searchResults.body.tracks.items.length > 0) {
+              const track = searchResults.body.tracks.items[0];
+              seedTracks.push(track.id);
+              console.log('   • Usando canción de búsqueda como semilla:', track.name);
+            } else if (searchResults.body.artists.items.length > 0) {
+              const artist = searchResults.body.artists.items[0];
+              seedArtists.push(artist.id);
+              console.log('   • Usando artista de búsqueda como semilla:', artist.name);
+            } else {
+              // Si no hay resultados, usar un género popular
+              seedGenres.push('pop');
+              console.log('   • Sin resultados, usando género pop como semilla predeterminada');
+            }
+          }
+          // Si no hay nada, usar la última canción reproducida o un género popular
+          else {
+            seedGenres.push('pop');
+            console.log('   • Sin parámetros, usando género pop como semilla predeterminada');
+          }
+          
+          // Obtener recomendaciones de Spotify
+          const recommendations = await spotifyApi.getRecommendations({
+            seed_tracks: seedTracks,
+            seed_artists: seedArtists,
+            seed_genres: seedGenres,
+            limit: 5
+          });
+          
+          if (recommendations.body.tracks.length > 0) {
+            console.log(`✅ SPOTIFY: Obtenidas ${recommendations.body.tracks.length} recomendaciones`);
+            
+            // Formatear recomendaciones para la respuesta
+            const recommendedTracks = recommendations.body.tracks.map(track => ({
+              name: track.name,
+              artist: track.artists[0].name,
+              album: track.album.name,
+              image: track.album.images[0]?.url,
+              uri: track.uri,
+              id: track.id
+            }));
+            
+            // Incluir recomendaciones en la respuesta
+            response.recommendations = recommendedTracks;
+            
+            // Actualizar mensaje con las recomendaciones
+            let recsMessage = 'Te recomiendo estas canciones: ';
+            recsMessage += recommendedTracks.map((t, i) => `${i+1}. "${t.name}" de ${t.artist}`).join(', ');
+            
+            response.message = recsMessage;
+          } else {
+            console.log('❌ SPOTIFY: No se pudieron obtener recomendaciones');
+            response.message = 'Lo siento, no pude encontrar recomendaciones en este momento. Inténtalo de nuevo más tarde.';
+          }
+        } catch (error) {
+          console.error('⚠️ ERROR: Fallo al obtener recomendaciones:', error.message || error);
+          response = {
+            action: 'error',
+            message: 'Ocurrió un error al buscar recomendaciones. Por favor, intenta de nuevo.'
+          };
+        }
+        break;
+        
+      case 'get_info':
+        console.log('🔍 SPOTIFY: Buscando información');
+        try {
+          const query = parameters?.query;
+          const target = parameters?.target || 'all'; // 'artist', 'track', 'album' o 'all'
+          
+          if (!query) {
+            response = {
+              action: 'error',
+              message: 'Necesito saber sobre qué artista, canción o álbum quieres información.'
+            };
+            break;
+          }
+          
+          console.log('   • Consulta:', query);
+          console.log('   • Objetivo:', target);
+          
+          // Determinar qué tipos de elementos buscar
+          const types = [];
+          if (target === 'all' || target === 'artist') types.push('artist');
+          if (target === 'all' || target === 'track') types.push('track');
+          if (target === 'all' || target === 'album') types.push('album');
+          
+          // Buscar en Spotify
+          const searchResults = await spotifyApi.search(query, types, { limit: 3 });
+          
+          // Preparar objeto de respuesta con la información
+          const info = {};
+          let infoMessage = '';
+          
+          // Procesar artistas
+          if (searchResults.body.artists && searchResults.body.artists.items.length > 0) {
+            const artist = searchResults.body.artists.items[0];
+            info.artist = {
+              name: artist.name,
+              genres: artist.genres,
+              popularity: artist.popularity,
+              followers: artist.followers.total,
+              image: artist.images[0]?.url,
+              uri: artist.uri,
+              id: artist.id
+            };
+            
+            // Obtener más detalles del artista
+            try {
+              const artistDetails = await spotifyApi.getArtist(artist.id);
+              info.artist = {
+                ...info.artist,
+                ...artistDetails.body
+              };
+              
+              // Obtener los álbumes principales
+              const albums = await spotifyApi.getArtistAlbums(artist.id, { limit: 5 });
+              if (albums.body.items.length > 0) {
+                info.artist.topAlbums = albums.body.items.map(album => ({
+                  name: album.name,
+                  releaseDate: album.release_date,
+                  image: album.images[0]?.url
+                }));
+              }
+              
+              // Obtener las canciones más populares
+              const topTracks = await spotifyApi.getArtistTopTracks(artist.id, 'ES');
+              if (topTracks.body.tracks.length > 0) {
+                info.artist.topTracks = topTracks.body.tracks.map(track => ({
+                  name: track.name,
+                  album: track.album.name,
+                  popularity: track.popularity
+                }));
+              }
+              
+              // Crear mensaje informativo
+              infoMessage = `${artist.name} es un artista de ${artist.genres.join(', ') || 'varios géneros'}. `;
+              infoMessage += `Tiene ${artist.followers.total.toLocaleString()} seguidores en Spotify. `;
+              
+              if (info.artist.topTracks) {
+                infoMessage += `Sus canciones más populares incluyen: ${info.artist.topTracks.slice(0, 3).map(t => t.name).join(', ')}. `;
+              }
+              
+              if (info.artist.topAlbums) {
+                infoMessage += `Entre sus álbumes destacan: ${info.artist.topAlbums.slice(0, 3).map(a => a.name).join(', ')}.`;
+              }
+            } catch (detailError) {
+              console.warn('Error al obtener detalles del artista:', detailError.message);
+              // Continuar con la información básica
+              infoMessage = `${artist.name} es un artista de ${artist.genres.join(', ') || 'varios géneros'}. `;
+              infoMessage += `Tiene ${artist.followers.total.toLocaleString()} seguidores en Spotify.`;
+            }
+          }
+          
+          // Procesar canciones
+          if (searchResults.body.tracks && searchResults.body.tracks.items.length > 0) {
+            const track = searchResults.body.tracks.items[0];
+            info.track = {
+              name: track.name,
+              artist: track.artists[0].name,
+              album: track.album.name,
+              releaseDate: track.album.release_date,
+              popularity: track.popularity,
+              duration: Math.round(track.duration_ms / 1000),
+              image: track.album.images[0]?.url,
+              uri: track.uri,
+              id: track.id
+            };
+            
+            // Si no hay información de artista, usar la de la canción
+            if (!infoMessage) {
+              infoMessage = `"${track.name}" es una canción de ${track.artists[0].name} `;
+              infoMessage += `del álbum "${track.album.name}" lanzado en ${track.album.release_date?.split('-')[0] || 'fecha desconocida'}. `;
+              infoMessage += `La canción tiene una duración de ${Math.floor(track.duration_ms / 60000)}:${(Math.floor(track.duration_ms / 1000) % 60).toString().padStart(2, '0')}.`;
+            }
+          }
+          
+          // Procesar álbumes
+          if (searchResults.body.albums && searchResults.body.albums.items.length > 0) {
+            const album = searchResults.body.albums.items[0];
+            info.album = {
+              name: album.name,
+              artist: album.artists[0].name,
+              releaseDate: album.release_date,
+              totalTracks: album.total_tracks,
+              image: album.images[0]?.url,
+              uri: album.uri,
+              id: album.id
+            };
+            
+            // Obtener más detalles del álbum
+            try {
+              const albumDetails = await spotifyApi.getAlbum(album.id);
+              info.album.tracks = albumDetails.body.tracks.items.map(track => ({
+                name: track.name,
+                duration: Math.round(track.duration_ms / 1000),
+                trackNumber: track.track_number
+              }));
+              
+              // Si no hay información previa, usar la del álbum
+              if (!infoMessage) {
+                infoMessage = `"${album.name}" es un álbum de ${album.artists[0].name} `;
+                infoMessage += `lanzado en ${album.release_date?.split('-')[0] || 'fecha desconocida'}. `;
+                infoMessage += `Contiene ${album.total_tracks} canciones`;
+                
+                if (info.album.tracks) {
+                  infoMessage += `, incluyendo: ${info.album.tracks.slice(0, 3).map(t => t.name).join(', ')}.`;
+                } else {
+                  infoMessage += '.'; 
+                }
+              }
+            } catch (albumError) {
+              console.warn('Error al obtener detalles del álbum:', albumError.message);
+              // Continuar con la información básica
+              if (!infoMessage) {
+                infoMessage = `"${album.name}" es un álbum de ${album.artists[0].name} `;
+                infoMessage += `lanzado en ${album.release_date?.split('-')[0] || 'fecha desconocida'}. `;
+                infoMessage += `Contiene ${album.total_tracks} canciones.`;
+              }
+            }
+          }
+          
+          // Si no se encontró información
+          if (Object.keys(info).length === 0) {
+            response = {
+              action: 'error',
+              message: `No encontré información sobre "${query}" en Spotify.`
+            };
+          } else {
+            // Incluir la información en la respuesta
+            response.info = info;
+            response.message = infoMessage || `Aquí tienes información sobre "${query}".`;
+          }
+        } catch (error) {
+          console.error('⚠️ ERROR: Fallo al obtener información:', error.message || error);
+          response = {
+            action: 'error',
+            message: 'Ocurrió un error al buscar información. Por favor, intenta de nuevo.'
+          };
+        }
+        break;
     }
     
     // Enviar respuesta a través de Socket.io si está disponible

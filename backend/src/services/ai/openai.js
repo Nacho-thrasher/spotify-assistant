@@ -54,42 +54,47 @@ const getSystemPrompt = (context) => {
   }
 
   return `
-Eres un asistente musical de Spotify útil y amigable.
-Tu objetivo es ayudar al usuario a controlar Spotify mediante comandos en lenguaje natural.
+# Asistente Musical de Spotify
 
-CAPACIDADES:
-- Reproducir música (artistas, canciones, géneros, playlists)
-- Pausar/reanudar reproducción
-- Saltar a canción anterior/siguiente
-- Ajustar volumen
-- Buscar música
+## Rol
+Eres un asistente musical útil, amigable y eficiente. Tu objetivo es ayudar al usuario a controlar Spotify mediante comandos en lenguaje natural.
+
+## Funcionalidades Disponibles
+- Reproducir música (por artista, canción, género o playlist)
+- Pausar o reanudar la reproducción
+- Saltar a la canción anterior o siguiente
+- Ajustar el volumen
+- Buscar canciones, artistas o playlists
 - Crear y modificar playlists
-- Proporcionar información sobre artistas, canciones, etc.
-- Añadir canciones a la cola (individual o múltiples)
+- Añadir canciones (individuales o múltiples) a la cola
 - Limpiar la cola de reproducción
+- Proporcionar información sobre artistas, canciones, etc.
 
-CONTEXTO ACTUAL:${contextMessage}
+## Contexto Actual
+${contextMessage}
 
-RECOMENDACIONES INTELIGENTES:
-- Si el usuario pide "más como esto", sugerir música similar a la canción actual o artistas relacionados.
-- Si hay una canción en reproducción, puedes referirte a ella para dar contexto a tus respuestas.
-- Adapta tus respuestas al género actual si es relevante.
-- Ofrece sugerencias basadas en la cola actual cuando tenga sentido.
+## Recomendaciones Inteligentes
+- Si el usuario pide "más como esto", sugiere contenido similar a lo que se está reproduciendo
+- Utiliza la canción o artista actual como referencia cuando sea útil
+- Adapta tus respuestas al género musical si es relevante
+- Basarse en la cola de reproducción para hacer sugerencias cuando tenga sentido
+- Sé proactivo ofreciendo información relevante sobre artistas o canciones cuando corresponda
+- Si detectas que el usuario está corrigiendo una acción anterior, aprende de esa corrección
 
-INSTRUCCIONES:
-1. Responde de forma concisa y conversacional.
-2. Identifica la intención del usuario y los parámetros necesarios.
-3. Proporciona respuestas amigables y centradas en música.
-4. Usa el contexto de reproducción para dar respuestas más personalizadas.
-5. Si no puedes realizar una acción, explica amablemente por qué.
+## Instrucciones Generales
+1. Responde de forma concisa, conversacional y centrada en música
+2. Detecta la intención del usuario y extrae los parámetros necesarios
+3. Usa el contexto de reproducción para enriquecer tus respuestas
+4. Si una acción no se puede ejecutar, responde con una explicación amable
+5. Cuando el usuario solicite información sobre artistas o canciones, proporciona datos interesantes
 
-FORMATO DE RESPUESTA:
+## Formato de Respuesta
 Debes devolver un objeto JSON con los siguientes campos:
 - action: la acción a realizar (play, pause, next, previous, volume, search, etc.)
 - parameters: objeto con parámetros relevantes para la acción
 - message: mensaje conversacional para responder al usuario
 
-Ejemplos de acciones:
+## Acciones Disponibles
 - "play": reproducir música (requiere query o trackId)
 - "pause": pausar reproducción
 - "resume": reanudar reproducción
@@ -97,17 +102,32 @@ Ejemplos de acciones:
 - "previous": canción anterior
 - "volume": ajustar volumen (requiere level: 0-100)
 - "search": buscar música (requiere query)
-- "queue": añadir canción a la cola (requiere query)
-- "multi_queue": añadir múltiples canciones a la cola (requiere queries: ["canción 1", "canción 2"])
+- "queue": añadir canción a la cola (requiere query o queries para múltiples canciones)
 - "clear_queue": limpiar la cola de reproducción
 - "info": proporcionar información (usa esta acción cuando solo quieras responder sin realizar una acción en Spotify)
+- "recommendations": recomendar música similar (cuando el usuario pide "más como esto")
+- "get_info": obtener información sobre artistas, canciones o álbumes (requiere query)
 
-Ejemplos de parámetros:
+## Ejemplos de Parámetros
 - query: "rock de los 80s", "canciones de Coldplay"
 - queries: ["Bohemian Rhapsody", "Stairway to Heaven", "Sweet Child O'Mine"]
 - trackId: "spotify:track:123456"
 - playlistId: "spotify:playlist:123456"
 - level: 60 (para volumen)
+- target: "artist", "track", "album" (para búsquedas específicas)
+
+## Ejemplos de Respuestas
+
+{ \"action\": \"play\", \"parameters\": { \"query\": \"rock alternativo\" }, \"message\": \"Reproduciendo rock alternativo para ti. ¡Disfruta!\" }
+
+{ \"action\": \"queue\", \"parameters\": { \"queries\": [\"Thunderstruck\", \"Back in Black\"] }, \"message\": \"He añadido Thunderstruck y Back in Black a la cola de reproducción.\" }
+
+{ \"action\": \"recommendations\", \"parameters\": { \"basedOn\": \"current\" }, \"message\": \"Basándome en lo que estás escuchando, te recomiendo estos temas similares que creo que te gustarán.\" }
+
+## Manejo de Correcciones
+Si el usuario corrige una acción anterior (por ejemplo, "No, quería añadir X a la cola, no reproducirlo"), reconoce el error, aplica la corrección y aprende para futuras interacciones.
+
+{ \"action\": \"queue\", \"parameters\": { \"query\": \"Sweet Child O Mine\" }, \"message\": \"Entendido, he añadido Sweet Child O Mine a la cola en lugar de reproducirla directamente.\" }
 `;
 };
 
@@ -180,7 +200,23 @@ async function processMessage(message, playbackContext = null, userId = 'anonymo
 
         // Extraer y procesar la respuesta
         const responseContent = completion.choices[0].message.content;
-        console.log('✨ RESPUESTA DE OPENAI:', responseContent);
+        
+        // Log detallado de la respuesta de OpenAI
+        console.log('✨ RESPUESTA DE OPENAI:');
+        console.log('==================== INICIO RESPUESTA OPENAI ====================');
+        console.log(responseContent);
+        console.log('==================== FIN RESPUESTA OPENAI ====================');
+        
+        // Log adicional para análisis
+        try {
+          const parsedResponse = JSON.parse(responseContent);
+          console.log('🔍 ANÁLISIS DE RESPUESTA:');
+          console.log('   • Acción detectada:', parsedResponse.action);
+          console.log('   • Parámetros:', JSON.stringify(parsedResponse.parameters, null, 2));
+          console.log('   • Longitud del mensaje:', parsedResponse.message.length, 'caracteres');
+        } catch (parseError) {
+          console.warn('⚠️ Error al analizar respuesta JSON de OpenAI:', parseError.message);
+        }
         
         try {
           // Intentar parsear la respuesta como JSON
@@ -727,20 +763,26 @@ async function processMessageSimple(message, userId = 'anonymous') {
     parameters = { infoType, subject };
   }
   
-  // Registrar la interacción para aprendizaje (asíncrono, no bloqueante)
+  // Registrar la interacción (asincrónicamente)
   userFeedback.logInteraction({
     userId,
     userMessage: message,
     detectedAction: action,
     parameters,
-    successful: true // Asumimos éxito inicial
+    successful: true
   }).catch(err => console.error('Error al registrar interacción:', err));
   
-  return {
+  // Log detallado del resultado del procesamiento simple
+  console.log('🔍 RESULTADO PROCESAMIENTO SIMPLE:');
+  console.log('==================== INICIO RESULTADO SIMPLE ====================');
+  console.log({
     action,
-    parameters,
+    parameters: JSON.stringify(parameters, null, 2),
     message: responseMessage
-  };
+  });
+  console.log('==================== FIN RESULTADO SIMPLE ====================');
+  
+  return { action, parameters, message: responseMessage };
 }
 
 /**

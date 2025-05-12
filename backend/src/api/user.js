@@ -784,19 +784,6 @@ router.get('/queue', async (req, res) => {
         
         queueData = await spotifyHelpers.getQueue(spotifyApi);
         
-        // DEPURACIÓN: Mostrar respuesta completa de la API
-        console.log('======== RESPUESTA COMPLETA DE LA API SPOTIFY ========');
-        console.log('Estructura de queueData:', JSON.stringify(queueData, null, 2));
-        
-        // Mostrar solo los nombres de las canciones en cola para verificar orden
-        if (queueData.queue && Array.isArray(queueData.queue)) {
-          console.log('\nORDEN DE CANCIONES EN COLA:\n');
-          queueData.queue.forEach((track, index) => {
-            console.log(`${index + 1}. ${track.name} - ${track.artists[0].name}`);
-          });
-        }
-        console.log('======== FIN RESPUESTA API SPOTIFY ========');
-        
       } catch (queueError) {
         console.error(`🔴 Error al obtener cola:`, queueError.message || queueError);
         

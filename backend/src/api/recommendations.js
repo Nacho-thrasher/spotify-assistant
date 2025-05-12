@@ -18,11 +18,18 @@ async function processRecommendations(spotifyApi, parameters, playbackContext, u
 
   // Verificar que tenemos un userId válido
   if (!userId) {
-    console.error('⚠️ ERROR: No hay userId para recomendaciones');
-    return {
-      success: false,
-      error: 'No se pueden obtener recomendaciones. Por favor, inicia sesión nuevamente con Spotify.'
-    };
+    console.warn('⚠️ ADVERTENCIA: No hay userId para recomendaciones, usando token de acceso como alternativa');
+    // Usar el accessToken como alternativa (ya que puede estar configurado en spotifyApi)
+    if (spotifyApi.getAccessToken()) {
+      userId = spotifyApi.getAccessToken().substring(0, 15); // Usar parte del token como ID
+      console.log('Usando accessToken como userId alternativo');
+    } else {
+      console.error('⚠️ ERROR: No hay ni userId ni accessToken para recomendaciones');
+      return {
+        success: false,
+        error: 'No se pueden obtener recomendaciones. Por favor, inicia sesión nuevamente con Spotify.'
+      };
+    }
   }
 
   // Verificamos que el spotifyApi tenga userId configurado correctamente

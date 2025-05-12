@@ -16,6 +16,11 @@ router.post('/message', async (req, res) => {
   const { message, userId } = req.body;
   const accessToken = req.headers.authorization?.split(' ')[1] || null;
   
+  console.log('RECIBIENDO MENSAJE DEL FRONTEND');
+  console.log('Mensaje:', message.substring(0, 50) + (message.length > 50 ? '...' : ''));
+  console.log('ID de Usuario recibido:', userId ? (userId.substring(0, 15) + '...') : 'undefined');
+  console.log('Token Auth recibido:', accessToken ? 'SI (válido)' : 'NO');
+  
   if (!message) {
     return res.status(400).json({ error: 'Mensaje requerido' });
   }
@@ -466,6 +471,12 @@ router.post('/message', async (req, res) => {
           if (result.success) {
             // Incluir recomendaciones en la respuesta
             response.recommendations = result.recommendations;
+            
+            // Incluir las sugerencias originales de la IA para mostrar el icono en el frontend
+            if (result.aiSuggestions) {
+              console.log('💡 Incluyendo sugerencias originales de IA en la respuesta');
+              response.aiSuggestions = result.aiSuggestions;
+            }
             
             // Actualizar mensaje con las recomendaciones
             let recsMessage = 'Te recomiendo estas canciones: ';

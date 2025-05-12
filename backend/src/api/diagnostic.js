@@ -1,7 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const spotifyManager = require('../services/spotify/spotifyManager');
-const logger = require('../utils/logger');
+
+// Simple logger implementation que no requiere módulo externo
+const logger = {
+  info: (message, ...args) => console.log(`[INFO] ${message}`, ...args),
+  error: (message, ...args) => console.error(`[ERROR] ${message}`, ...args),
+  warn: (message, ...args) => console.warn(`[WARN] ${message}`, ...args)
+};
 
 /**
  * Ruta para diagnosticar problemas con la API de Spotify

@@ -199,93 +199,130 @@ async function processRecommendations(spotifyApi, parameters, playbackContext, u
     // Obtener recomendaciones de Spotify
     let recommendations;
     let success = false;
+  // NUEVO ENFOQUE: Ya que el endpoint de recomendaciones está marcado como deprecated,
+  // utilizamos una combinación de otros endpoints para obtener tracks similares
+  try {
+    console.log('🔍 Utilizando nuevo método alternativo para recomendaciones');
+    let tracksCollection = [];
     
-    // Intento 1: Plan original
-    try {
-      recommendations = await spotifyApi.getRecommendations(recommendationParams);
-      success = true;
-    } catch (recError) {
-      console.warn('⚠️ Error al obtener recomendaciones:', recError.statusCode, recError.message || recError);
-      
-      if (recError.body) {
-        console.error('Detalles del error:', JSON.stringify(recError.body, null, 2));
-      }
-    }
-    
-    // Fallback 1: Cambiar mercado a US
-    if (!success) {
+    // Estrategia 1: Si tenemos un artista, buscar artistas relacionados y sus top tracks
+    if (seedArtists.length > 0) {
       try {
-        console.log('🔄 Fallback 1: Intentando con mercado US');
-        const fallbackParams = {...recommendationParams, market: 'US'};
-        recommendations = await spotifyApi.getRecommendations(fallbackParams);
-        success = true;
-      } catch (fallbackErr1) {
-        console.warn('Fallback 1 falló:', fallbackErr1.statusCode);
-      }
-    }
-    
-    // Fallback 2: Usar género popular aleatorio
-    if (!success) {
-      try {
-        console.log('🔄 Fallback 2: Intentando con género popular aleatorio');
-        const safeGenres = ['pop', 'rock', 'hip-hop', 'latin'];
-        const randomGenre = safeGenres[Math.floor(Math.random() * safeGenres.length)];
+        console.log('🎸 Buscando artistas relacionados a:', seedArtists[0]);
         
-        recommendations = await spotifyApi.getRecommendations({
-          seed_genres: randomGenre, 
-          limit: 5, 
-          market: 'US'
-        });
-        success = true;
-      } catch (fallbackErr2) {
-        console.warn('Fallback 2 falló:', fallbackErr2.statusCode);
-      }
-    }
-    
-    // Fallback 3: Obtener lista de géneros disponibles
-    if (!success) {
-      try {
-        console.log('🔄 Fallback 3: Obteniendo géneros disponibles');
-        
-        // Verificar nuevamente que tenemos userId correcto
+        // Verificar que tenemos userId correcto
         if (!spotifyApi.userId) {
-          console.log('⚠️ Re-configurando userId en spotifyApi para géneros:', userId);
+          console.log('⚠️ Configurando userId en spotifyApi:', userId);
           spotifyApi.userId = userId;
         }
         
-        const genresResponse = await spotifyApi.getAvailableGenreSeeds();
+        // 1. Obtener artistas relacionados
+        const relatedResponse = await spotifyApi.getArtistRelatedArtists(seedArtists[0]);
         
-        if (genresResponse?.body?.genres?.length > 0) {
-          const availableGenres = genresResponse.body.genres;
-          const randomIndex = Math.floor(Math.random() * availableGenres.length);
-          const validGenre = availableGenres[randomIndex];
+        if (relatedResponse?.body?.artists?.length > 0) {
+          console.log(`✅ Encontrados ${relatedResponse.body.artists.length} artistas relacionados`);
           
-          console.log(`🔄 Usando género disponible: ${validGenre}`);
+          // 2. Para cada artista relacionado (hasta 3), obtener sus tracks principales
+          const artistsToFetch = relatedResponse.body.artists.slice(0, 3);
           
-          recommendations = await spotifyApi.getRecommendations({
-            seed_genres: validGenre, 
-            limit: 5, 
-            market: 'US'
-          });
-          success = true;
-        } else {
-          throw new Error('No se pudieron obtener géneros disponibles');
+          for (const artist of artistsToFetch) {
+            try {
+              console.log(`🔎 Obteniendo top tracks de ${artist.name}`);
+              const topTracksResponse = await spotifyApi.getArtistTopTracks(artist.id, 'US');
+              
+              if (topTracksResponse?.body?.tracks?.length > 0) {
+                // Añadir 2 tracks aleatorios de este artista
+                const shuffledTracks = [...topTracksResponse.body.tracks]
+                  .sort(() => 0.5 - Math.random())
+                  .slice(0, 2);
+                  
+                tracksCollection = [...tracksCollection, ...shuffledTracks];
+                console.log(`✅ Añadidas ${shuffledTracks.length} canciones de ${artist.name}`);
+              }
+            } catch (topTracksError) {
+              console.warn(`⚠️ Error al obtener top tracks de ${artist.name}:`, topTracksError.statusCode);
+            }
+          }
         }
-      } catch (fallbackErr3) {
-        console.warn('Fallback 3 falló:', fallbackErr3.statusCode || fallbackErr3.message);
+      } catch (relatedError) {
+        console.warn('⚠️ Error al obtener artistas relacionados:', relatedError.statusCode);
       }
     }
     
-    // Fallback 4: Artistas populares predefinidos
-    if (!success) {
+    // Estrategia 2: Si tenemos un track, buscar su audio features y luego tracks similares
+    else if (seedTracks.length > 0) {
       try {
-        console.log('🔄 Fallback 4: Último intento con artistas populares');
+        console.log('🎧 Buscando pistas con características similares a:', seedTracks[0]);
         
-        // Verificar nuevamente que tenemos userId correcto
-        if (!spotifyApi.userId) {
-          console.log('⚠️ Re-configurando userId en spotifyApi para artistas:', userId);
-          spotifyApi.userId = userId;
+        // 1. Obtener audio features de la track semilla
+        const featuresResponse = await spotifyApi.getAudioFeaturesForTrack(seedTracks[0]);
+        
+        if (featuresResponse?.body) {
+          // 2. Obtener la track original para tener más contexto
+          const trackResponse = await spotifyApi.getTrack(seedTracks[0]);
+          
+          if (trackResponse?.body) {
+            const track = trackResponse.body;
+            console.log(`✅ Analizando características de "${track.name}" por ${track.artists[0].name}`);
+            
+            // 3. Buscar tracks del mismo género o artista
+            const searchQuery = track.artists[0].name;
+            const searchResponse = await spotifyApi.search(searchQuery, ['track'], { limit: 10 });
+            
+            if (searchResponse?.body?.tracks?.items?.length > 0) {
+              // Filtrar para excluir la canción original
+              const filteredTracks = searchResponse.body.tracks.items.filter(t => t.id !== track.id);
+              tracksCollection = [...tracksCollection, ...filteredTracks];
+              console.log(`✅ Encontradas ${filteredTracks.length} canciones relacionadas con ${searchQuery}`);
+            }
+          }
         }
+      } catch (featuresError) {
+        console.warn('⚠️ Error al trabajar con features de la pista:', featuresError.statusCode);
+      }
+    }
+    
+    // Estrategia 3: Si tenemos un género, buscar artistas populares de ese género
+    else if (seedGenres.length > 0) {
+      try {
+        const genre = seedGenres[0];
+        console.log(`🎵 Buscando artistas populares del género: ${genre}`);
+        
+        // 1. Buscar artistas del género
+        const searchResponse = await spotifyApi.search(`genre:${genre}`, ['artist'], { limit: 3 });
+        
+        if (searchResponse?.body?.artists?.items?.length > 0) {
+          const artists = searchResponse.body.artists.items;
+          console.log(`✅ Encontrados ${artists.length} artistas del género ${genre}`);
+          
+          // 2. Para cada artista, obtener sus tracks principales
+          for (const artist of artists) {
+            try {
+              const topTracksResponse = await spotifyApi.getArtistTopTracks(artist.id, 'US');
+              
+              if (topTracksResponse?.body?.tracks?.length > 0) {
+                // Añadir 2 tracks aleatorios de este artista
+                const shuffledTracks = [...topTracksResponse.body.tracks]
+                  .sort(() => 0.5 - Math.random())
+                  .slice(0, 2);
+                  
+                tracksCollection = [...tracksCollection, ...shuffledTracks];
+                console.log(`✅ Añadidas ${shuffledTracks.length} canciones de ${artist.name}`);
+              }
+            } catch (topTracksError) {
+              console.warn(`⚠️ Error al obtener top tracks de ${artist.name}:`, topTracksError.statusCode);
+            }
+          }
+        }
+      } catch (genreError) {
+        console.warn(`⚠️ Error al buscar artistas del género ${seedGenres[0]}:`, genreError.statusCode);
+      }
+    }
+    
+    // Estrategia 4: Si no tenemos nada, usar artistas populares predefinidos
+    if (tracksCollection.length === 0) {
+      try {
+        console.log('🔄 Fallback: Usando artistas populares predefinidos');
         
         // Drake, Bad Bunny, The Weeknd, Taylor Swift, Ed Sheeran
         const popularArtists = [
@@ -293,23 +330,50 @@ async function processRecommendations(spotifyApi, parameters, playbackContext, u
           '1Xyo4u8uXC1ZmMpatF05PJ', '06HL4z0CvFAxyc27GXpf02', 
           '6eUKZXaKkcviH0Ku9w2n3V'
         ];
-        const randomArtist = popularArtists[Math.floor(Math.random() * popularArtists.length)];
         
-        recommendations = await spotifyApi.getRecommendations({
-          seed_artists: randomArtist, 
-          limit: 5, 
-          market: 'US'
-        });
-        success = true;
-      } catch (fallbackErr4) {
-        console.error('❌ Todos los intentos de recomendaciones fallaron');
+        // Seleccionar 2 artistas aleatorios
+        const selectedArtists = popularArtists
+          .sort(() => 0.5 - Math.random())
+          .slice(0, 2);
+        
+        // Obtener top tracks de cada uno
+        for (const artistId of selectedArtists) {
+          try {
+            const topTracksResponse = await spotifyApi.getArtistTopTracks(artistId, 'US');
+            
+            if (topTracksResponse?.body?.tracks?.length > 0) {
+              // Añadir 3 tracks aleatorios de este artista
+              const shuffledTracks = [...topTracksResponse.body.tracks]
+                .sort(() => 0.5 - Math.random())
+                .slice(0, 3);
+                
+              tracksCollection = [...tracksCollection, ...shuffledTracks];
+              console.log(`✅ Añadidas ${shuffledTracks.length} canciones del artista ${artistId}`);
+            }
+          } catch (topTracksError) {
+            console.warn(`⚠️ Error al obtener top tracks del artista ${artistId}:`, topTracksError.statusCode);
+          }
+        }
+      } catch (fallbackError) {
+        console.error('❌ Todos los intentos de recomendaciones alternativas fallaron');
         return {
           success: false,
-          error: 'No se pudieron obtener recomendaciones después de varios intentos'
+          error: 'No se pudieron obtener recomendaciones tras intentar todos los métodos alternativos'
         };
       }
     }
     
+    // Preparar respuesta con las pistas recolectadas
+    recommendations = {
+      body: {
+        tracks: tracksCollection.slice(0, 5) // Limitar a 5 pistas
+      }
+    };
+    
+    // Verificar que tengamos suficientes pistas
+    success = recommendations.body.tracks.length > 0;
+  }
+  
     if (recommendations && recommendations.body && recommendations.body.tracks && recommendations.body.tracks.length > 0) {
       console.log(`✅ SPOTIFY: Obtenidas ${recommendations.body.tracks.length} recomendaciones`);
       

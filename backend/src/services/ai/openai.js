@@ -552,7 +552,59 @@ async function processMessageSimple(message, userId = 'anonymous') {
       responseMessage = 'No he entendido qué quieres añadir a la cola. Inténtalo con algo como "añade Bohemian Rhapsody a la cola".';
     }
   }
-  // Reproducir música
+  // IMPORTANTE: Comandos "más como esto" - recomendaciones basadas en lo actual
+  // Colocado ANTES de reproducción para evitar que "recomienda" active reproducción
+  else if (lowerMessage.includes('más como') || lowerMessage.includes('similar') || 
+           lowerMessage.includes('parecido') || lowerMessage.includes('recomienda') ||
+           lowerMessage.includes('recomendación') || lowerMessage.includes('recomendaciones') ||
+           (lowerMessage.includes('más') && lowerMessage.includes('como') && lowerMessage.includes('esto'))) {
+    action = 'recommendations';
+    responseMessage = 'Buscando música similar a la que estás escuchando';
+    
+    // Si hay contexto específico en el mensaje, extráelo
+    let source = 'current'; // Por defecto, recomendar basado en la canción actual
+    
+    // Verificar si hay una canción específica mencionada
+    const songPatterns = [
+      /(?:como|similar a|parecido a)\s+(.+?)(?:\s+de|\s+por|$)/i,
+      /recomienda\s+(?:canciones|música)\s+(?:como|similar a|parecido a)\s+(.+?)(?:\s+de|\s+por|$)/i,
+      /recomienda\s+(?:canciones|música)\s+(?:de|del estilo de|del género de)\s+(.+?)(?:\s+de|\s+por|$)/i
+    ];
+    
+    let basedOn = null;
+    
+    // Intentar extraer una canción o artista específico
+    for (const pattern of songPatterns) {
+      const match = lowerMessage.match(pattern);
+      if (match && match[1]) {
+        basedOn = match[1].trim();
+        break;
+      }
+    }
+    
+    // Si se mencionó una canción o artista específico
+    if (basedOn) {
+      parameters = { basedOn };
+      responseMessage = `Buscando música similar a ${basedOn}`;
+    }
+    // Si mencionó específicamente el artista actual
+    else if (lowerMessage.includes('artista')) {
+      source = 'artist';
+      parameters = { source };
+      responseMessage = 'Buscando más música de este artista y similares';
+    } 
+    // Si mencionó específicamente el género actual
+    else if (lowerMessage.includes('género') || lowerMessage.includes('genero') || lowerMessage.includes('estilo')) {
+      source = 'genre';
+      parameters = { source };
+      responseMessage = 'Buscando más música de este género';
+    }
+    // Caso por defecto: basado en la canción actual
+    else {
+      parameters = { source };
+    }
+  }
+  // Reproducir música (DESPUÉS de procesar recomendaciones)
   else if (lowerMessage.includes('reproduc') || lowerMessage.includes('play') || 
       (lowerMessage.includes('pon') && !isQueueRequest)) {
     action = 'play';
@@ -699,27 +751,8 @@ async function processMessageSimple(message, userId = 'anonymous') {
     parameters = { infoType: 'track', subject: 'current' };
     responseMessage = 'Mostrando detalles de la canción actual';
   }
-  // Comandos "más como esto" - recomendaciones basadas en lo actual
-  else if (lowerMessage.includes('más como') || lowerMessage.includes('similar') || 
-           lowerMessage.includes('parecido') || lowerMessage.includes('recomienda') ||
-           (lowerMessage.includes('más') && lowerMessage.includes('como') && lowerMessage.includes('esto'))) {
-    action = 'recommendations';
-    responseMessage = 'Buscando música similar a la que estás escuchando';
-    
-    // Si hay contexto específico en el mensaje, extráelo
-    let source = 'current'; // Por defecto, recomendar basado en la canción actual
-    
-    if (lowerMessage.includes('artista')) {
-      source = 'artist';
-      responseMessage = 'Buscando más música de este artista y similares';
-    } 
-    else if (lowerMessage.includes('género') || lowerMessage.includes('genero') || lowerMessage.includes('estilo')) {
-      source = 'genre';
-      responseMessage = 'Buscando más música de este género';
-    }
-    
-    parameters = { source };
-  }
+  // Los comandos de recomendaciones se procesan más arriba en el código
+  // para evitar conflictos con el detector de comandos de reproducción
   // Información sobre artistas, canciones, álbumes
   else if (lowerMessage.includes('quién es') || lowerMessage.includes('quien es') || 
            lowerMessage.includes('información sobre') || lowerMessage.includes('háblame de') ||

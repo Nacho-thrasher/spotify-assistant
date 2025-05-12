@@ -122,7 +122,9 @@ function buildRecommendationContext(parameters, playbackContext) {
  */
 async function getRecommendationsFromAI(context) {
   // Construir un prompt para OpenAI con instrucciones detalladas para formato
-  let prompt = 'IMPORTANTE: Necesito EXACTAMENTE 5 recomendaciones musicales ESPECÍFICAS con nombre de canción y artista. ';
+  let prompt = `INSTRUCCIONES EXTREMADAMENTE IMPORTANTES (NO IGNORAR):
+
+Necesito EXACTAMENTE 5 recomendaciones musicales específicas con nombres de canciones y artistas. `;
   
   // Añadir contexto según lo que tengamos
   if (context.references.length > 0 && context.references[0].type === 'current_track') {
@@ -144,7 +146,7 @@ async function getRecommendationsFromAI(context) {
   
   prompt += `
 
-RESPONDE ESTRICTAMENTE CON ESTE FORMATO y nada más:
+IMPERATIVO: Debes proporcionar SOLO un array JSON con EXACTAMENTE este formato y NADA más:
 [
   { "song": "Nombre de Canción 1", "artist": "Nombre de Artista 1" },
   { "song": "Nombre de Canción 2", "artist": "Nombre de Artista 2" },
@@ -153,7 +155,10 @@ RESPONDE ESTRICTAMENTE CON ESTE FORMATO y nada más:
   { "song": "Nombre de Canción 5", "artist": "Nombre de Artista 5" }
 ]
 
-NO INCLUYAS ningún texto antes o después del JSON. SOLO devuelve el array JSON con 5 canciones.`;
+NO AÑADAS TEXTO FUERA DEL JSON. SOLO EL ARRAY JSON Y NADA MÁS.
+NO escribas frases como "Aquí tienes" o "Estas son mis recomendaciones".
+NO escribas explicaciones antes o después del JSON.
+Tu respuesta completa debe ser SOLO el array JSON, sin nada más.`;
   
   try {
     // Llamar al modelProvider para obtener recomendaciones
@@ -165,9 +170,23 @@ NO INCLUYAS ningún texto antes o después del JSON. SOLO devuelve el array JSON
       throw new Error('No se recibió respuesta de la IA');
     }
     
+    // Limpiar la respuesta de caracteres no deseados y texto extra
+    let cleanResponse = response.trim();
+    
+    // Intentar extraer solo el JSON si hay texto adicional
+    const jsonStartIndex = cleanResponse.indexOf('[');
+    const jsonEndIndex = cleanResponse.lastIndexOf(']') + 1;
+    
+    if (jsonStartIndex !== -1 && jsonEndIndex !== -1) {
+      console.log('Encontrado posible JSON entre los índices:', jsonStartIndex, jsonEndIndex);
+      cleanResponse = cleanResponse.substring(jsonStartIndex, jsonEndIndex);
+    }
+    
+    console.log('Respuesta recibida original:', response);
+    console.log('Respuesta limpiada para JSON:', cleanResponse);
+    
     try {
-      console.log('Respuesta recibida:', response);
-      const jsonResponse = JSON.parse(response);
+      const jsonResponse = JSON.parse(cleanResponse);
       
       // La respuesta puede venir en diferentes formatos, intentamos manejarlos todos
       if (Array.isArray(jsonResponse)) {

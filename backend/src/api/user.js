@@ -775,6 +775,12 @@ router.get('/queue', async (req, res) => {
       let queueData;
       try {
         queueData = await spotifyHelpers.getQueue(spotifyApi);
+        
+        // DEPURACIÓN: Mostrar respuesta completa de la API
+        console.log('======== RESPUESTA COMPLETA DE LA API SPOTIFY ========');
+        console.log('Estructura de queueData:', JSON.stringify(queueData, null, 2));
+        console.log('======== FIN RESPUESTA API SPOTIFY ========');
+        
       } catch (queueError) {
         console.error(`🔴 Error al obtener cola:`, queueError.message || queueError);
         

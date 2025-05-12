@@ -60,7 +60,7 @@ router.post('/message', async (req, res) => {
           const currentTrack = await spotifyApi.getMyCurrentPlayingTrack();
           
           // Obtener la cola de reproducción
-          const queueResponse = await fetch(`${process.env.API_URL || 'http://localhost:5000'}/api/user/queue`, {
+          const queueResponse = await fetch(`${process.env.API_URL || 'http://localhost:8080'}/api/user/queue`, {
             headers: {
               'Authorization': `Bearer ${accessToken}`
             }
@@ -509,13 +509,36 @@ router.post('/message', async (req, res) => {
             console.log('   • Sin parámetros, usando género pop como semilla predeterminada');
           }
           
+          // Preparar parámetros para las recomendaciones
+          const recommendationParams = {};
+          
+          // Solo incluir parámetros que tengan valores
+          if (seedTracks.length > 0) {
+            recommendationParams.seed_tracks = seedTracks.join(',');
+          }
+          
+          if (seedArtists.length > 0) {
+            recommendationParams.seed_artists = seedArtists.join(',');
+          }
+          
+          if (seedGenres.length > 0) {
+            recommendationParams.seed_genres = seedGenres.join(',');
+          }
+          
+          // Asegurarse de que al menos un parámetro de semilla esté presente
+          if (Object.keys(recommendationParams).length === 0) {
+            // Si no hay semillas, usar géneros populares
+            recommendationParams.seed_genres = 'pop,rock';
+            console.log('   • Sin semillas válidas, usando géneros populares como semilla');
+          }
+          
+          // Añadir límite de resultados
+          recommendationParams.limit = 5;
+          
+          console.log('Parámetros de recomendación:', recommendationParams);
+          
           // Obtener recomendaciones de Spotify
-          const recommendations = await spotifyApi.getRecommendations({
-            seed_tracks: seedTracks,
-            seed_artists: seedArtists,
-            seed_genres: seedGenres,
-            limit: 5
-          });
+          const recommendations = await spotifyApi.getRecommendations(recommendationParams);
           
           if (recommendations.body.tracks.length > 0) {
             console.log(`✅ SPOTIFY: Obtenidas ${recommendations.body.tracks.length} recomendaciones`);
@@ -603,23 +626,35 @@ router.post('/message', async (req, res) => {
               };
               
               // Obtener los álbumes principales
-              const albums = await spotifyApi.getArtistAlbums(artist.id, { limit: 5 });
-              if (albums.body.items.length > 0) {
-                info.artist.topAlbums = albums.body.items.map(album => ({
-                  name: album.name,
-                  releaseDate: album.release_date,
-                  image: album.images[0]?.url
-                }));
+              try {
+                // Método actualizado para obtener álbumes del artista
+                const albums = await spotifyApi.getArtistAlbums(artist.id, { limit: 5 });
+                if (albums.body.items.length > 0) {
+                  info.artist.topAlbums = albums.body.items.map(album => ({
+                    name: album.name,
+                    releaseDate: album.release_date,
+                    image: album.images[0]?.url
+                  }));
+                }
+              } catch (albumError) {
+                console.error(`Error al obtener álbumes para artista ${artist.id}:`, albumError.message);
+                // Si hay error, continuamos sin álbumes
+                info.artist.topAlbums = [];
               }
               
               // Obtener las canciones más populares
-              const topTracks = await spotifyApi.getArtistTopTracks(artist.id, 'ES');
-              if (topTracks.body.tracks.length > 0) {
-                info.artist.topTracks = topTracks.body.tracks.map(track => ({
-                  name: track.name,
-                  album: track.album.name,
-                  popularity: track.popularity
-                }));
+              try {
+                const topTracks = await spotifyApi.getArtistTopTracks(artist.id, 'ES');
+                if (topTracks.body.tracks.length > 0) {
+                  info.artist.topTracks = topTracks.body.tracks.map(track => ({
+                    name: track.name,
+                    album: track.album.name,
+                    popularity: track.popularity
+                  }));
+                }
+              } catch (topTracksError) {
+                console.error(`Error al obtener canciones populares para artista ${artist.id}:`, topTracksError.message);
+                info.artist.topTracks = [];
               }
               
               // Crear mensaje informativo
@@ -680,11 +715,34 @@ router.post('/message', async (req, res) => {
             // Obtener más detalles del álbum
             try {
               const albumDetails = await spotifyApi.getAlbum(album.id);
-              info.album.tracks = albumDetails.body.tracks.items.map(track => ({
-                name: track.name,
-                duration: Math.round(track.duration_ms / 1000),
-                trackNumber: track.track_number
-              }));
+              info.album = {
+                ...info.album,
+                ...albumDetails.body
+              };
+              
+              // Obtener las canciones del álbum
+              try {
+                const albumTracks = await spotifyApi.getAlbumTracks(album.id, { limit: 20 });
+                if (albumTracks.body.items.length > 0) {
+                  info.album.tracks = albumTracks.body.items.map(track => ({
+                    name: track.name,
+                    duration: Math.round(track.duration_ms / 1000),
+                    trackNumber: track.track_number
+                  }));
+                }
+              } catch (albumTracksError) {
+                console.error(`Error al obtener canciones del álbum ${album.id}:`, albumTracksError.message);
+                // Si falla, intentamos usar los tracks del objeto albumDetails
+                if (albumDetails.body.tracks && albumDetails.body.tracks.items) {
+                  info.album.tracks = albumDetails.body.tracks.items.map(track => ({
+                    name: track.name,
+                    duration: Math.round(track.duration_ms / 1000),
+                    trackNumber: track.track_number
+                  }));
+                } else {
+                  info.album.tracks = [];
+                }
+              }
               
               // Si no hay información previa, usar la del álbum
               if (!infoMessage) {

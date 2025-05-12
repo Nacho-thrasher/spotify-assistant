@@ -64,16 +64,36 @@ router.get('/playlists', async (req, res) => {
  * @access  Private
  */
 router.get('/now-playing', async (req, res) => {
+  const userId = getUserIdSafe(req);
+  
   try {
-    const spotifyApi = await getSpotifyForRequest(req);
+    console.log(`Obteniendo canción actual para usuario: ${userId}`);
+    
+    // Obtener instancia de SpotifyAPI con verificación automática de token
+    // requireAuth=false (intentar usar tokens si existen, pero no exigir autenticación)
+    // verifyToken=true (verificar y renovar el token automáticamente)
+    const spotifyApi = await getSpotifyForRequest(req, false, true);
+    
+    if (!spotifyApi) {
+      return res.status(401).json({
+        error: 'Usuario no autenticado',
+        message: 'No hay tokens disponibles para este usuario o han expirado',
+        requiresAuth: true
+      });
+    }
+    
+    // Hacer la llamada a la API con el token ya verificado
+    console.log(`Obteniendo track actual para usuario ${userId}...`);
     const data = await spotifyApi.getMyCurrentPlayingTrack();
-    res.json(data.body);
+    
+    // Devolver la respuesta
+    return res.json(data.body);
   } catch (error) {
     console.error('Error al obtener canción actual:', error);
     
     // Diferenciar entre errores de autenticación y otros errores
-    if (error.message && error.message.includes('no autenticado con Spotify')) {
-      // Error de usuario no autenticado
+    if (error.message && (error.message.includes('no autenticado con Spotify') || 
+                         error.message.includes('Sesión de Spotify expirada'))) {
       return res.status(401).json({
         error: 'Usuario no autenticado',
         message: 'Debe iniciar sesión con Spotify para acceder a esta funcionalidad',
@@ -81,7 +101,19 @@ router.get('/now-playing', async (req, res) => {
       });
     }
     
-    res.status(500).json({ error: 'Error al obtener canción actual', message: error.message });
+    if (error.statusCode === 401 || 
+       (error.body && error.body.error && error.body.error.status === 401)) {
+      return res.status(401).json({
+        error: 'Token expirado',
+        message: 'Su sesión ha expirado. Por favor inicie sesión nuevamente',
+        requiresAuth: true
+      });
+    }
+    
+    return res.status(500).json({ 
+      error: 'Error al obtener canción actual', 
+      message: error.message 
+    });
   }
 });
 

@@ -86,6 +86,20 @@ class SpotifyApiWithCache {
       3600 // Caché de 1 hora para recomendaciones
     );
   }
+  
+  /**
+   * Obtiene los géneros disponibles para recomendaciones
+   * @returns {Promise<Object>} - Lista de géneros disponibles
+   */
+  async getAvailableGenreSeeds() {
+    return await getCachedData(
+      'available_genres', 
+      this.userId,
+      () => this.spotifyApi.getAvailableGenreSeeds(),
+      {},
+      86400 // Caché de 24 horas para géneros (cambian poco)
+    );
+  }
 
   /**
    * Obtiene información de una pista
@@ -160,6 +174,22 @@ class SpotifyApiWithCache {
       () => this.spotifyApi.getArtistRelatedArtists(artistId),
       { artistId },
       3600 // Caché de 1 hora para artistas relacionados
+    );
+  }
+  
+  /**
+   * Obtiene los álbumes de un artista
+   * @param {string} artistId - ID del artista
+   * @param {Object} options - Opciones adicionales (limit, offset, etc.)
+   * @returns {Promise<Object>} - Álbumes del artista
+   */
+  async getArtistAlbums(artistId, options = { limit: 5 }) {
+    return await getCachedData(
+      'artist_albums', 
+      this.userId,
+      () => this.spotifyApi.getArtistAlbums(artistId, options),
+      { artistId, ...options },
+      3600 // Caché de 1 hora para álbumes
     );
   }
 

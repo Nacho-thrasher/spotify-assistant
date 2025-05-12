@@ -77,7 +77,9 @@ class SpotifyApiWithCache {
     seedKeys.forEach(key => {
       seedValues[key] = options[key];
     });
-    
+    console.log('Obteniendo recomendaciones con semillas:', seedValues);
+    console.log('Obteniendo opciones:', options);
+    console.log('Obteniendo usuario:', this.userId);
     return await getCachedData(
       'recommendations', 
       this.userId,

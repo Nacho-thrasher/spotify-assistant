@@ -250,14 +250,41 @@ const refreshUserTokens = async (userId) => {
       
       return true;
     } catch (refreshError) {
-      // Si el error es específicamente invalid_grant, limpiar los tokens
-      if (refreshError.message && refreshError.message.includes('invalid_grant')) {
-        console.error(`⚠️ Refresh token inválido para usuario ${userId}. Limpiando datos...`);
+      // Mejorar el manejo de errores del refresh
+      console.error(`⚠️ Error al refrescar tokens para usuario ${userId}:`, JSON.stringify(refreshError, null, 2));
+      
+      // Capturar el error con más detalle
+      let errorType = 'unknown_error';
+      let errorMessage = 'Error desconocido al refrescar la sesión';
+      
+      if (refreshError.body) {
+        console.error('Detalles del error:', refreshError.body);
+        
+        if (refreshError.body.error === 'invalid_grant') {
+          errorType = 'invalid_grant';
+          errorMessage = 'La sesión ha expirado. Por favor, inicia sesión nuevamente.';
+          // Limpiar tokens inválidos
+          await clearUserInstance(userId);
+        } else if (refreshError.body.error_description) {
+          errorMessage = refreshError.body.error_description;
+          errorType = refreshError.body.error || 'spotify_error';
+        } else if (refreshError.body.error) {
+          errorType = typeof refreshError.body.error === 'string' ? refreshError.body.error : 'spotify_error';
+          errorMessage = 'Error en la API de Spotify al refrescar el token';
+        }
+      } else if (refreshError.message && refreshError.message.includes('invalid_grant')) {
+        errorType = 'invalid_grant';
+        errorMessage = 'La sesión ha expirado. Por favor, inicia sesión nuevamente.';
+        // Limpiar tokens inválidos
         await clearUserInstance(userId);
-        // Devolver un código específico para manejar este caso en la UI
-        return { error: 'invalid_grant', message: 'La sesión ha expirado. Por favor, inicia sesión nuevamente.' };
       }
-      throw refreshError; // Re-lanzar otros errores
+      
+      // Devolver un objeto con información detallada para manejar en la UI
+      return { 
+        error: errorType, 
+        message: errorMessage,
+        requiresReauth: errorType === 'invalid_grant'
+      };
     }
   } catch (error) {
     console.error(`Error al renovar token para usuario ${userId}:`, error);

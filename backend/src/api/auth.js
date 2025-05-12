@@ -106,9 +106,24 @@ router.get('/callback', async (req, res) => {
     res.redirect(`${frontendUrl}/?access_token=${access_token}&refresh_token=${refresh_token}&expires_in=${expires_in}`);
   } catch (error) {
     console.error('Error durante la autenticación:', error);
+    
+    // Mejorar el manejo del error para obtener información más detallada
+    let errorMessage = error.message || 'Error desconocido';
+    
+    // Si el error viene de Spotify API, puede tener una estructura específica
+    if (error.body && error.body.error_description) {
+      errorMessage = error.body.error_description;
+    } else if (error.body && error.body.error) {
+      errorMessage = typeof error.body.error === 'string' 
+        ? error.body.error 
+        : JSON.stringify(error.body.error);
+    }
+    
+    console.error('Mensaje de error detallado:', errorMessage);
+    
     res.status(400).json({ 
       error: 'Error durante la autenticación', 
-      message: error.message 
+      message: errorMessage 
     });
   }
 });

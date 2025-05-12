@@ -1,6 +1,6 @@
 /**
- * Utilidades para trabajar con la API de Spotify
- * Incluye funciones para manejo de autenticación y peticiones
+ * Utility para comunicarse con la API de Spotify
+ * Implementación de métodos comunes reusables
  */
 
 // Reemplazar instancia global por el administrador de instancias
@@ -9,76 +9,71 @@ const { redisClient } = require('../../config/redis');
 
 /**
  * Obtiene la cola de reproducción directamente usando fetch
- * La biblioteca spotify-web-api-node no implementa este método
- * @param {Object} spotifyApiInstance - Instancia de la API de Spotify a usar
- * @param {string} userId - ID del usuario (sólo necesario si no se proporciona spotifyApiInstance)
- * @param {boolean} refreshTokenIfNeeded - Si se debe intentar refrescar el token en caso de error 401
- * @returns {Promise<Object>} - Datos de la cola
+ * @param {Object} spotifyApi - Instancia de la API de Spotify
+ * @returns {Promise<Object>} - Información de la cola actual
  */
-const getSpotifyQueue = async (spotifyApiInstance = null, userId = null, refreshTokenIfNeeded = true) => {
+const getQueue = async (spotifyApi) => {
+  // El SDK no tiene un método para esto, usar fetch
+  const token = spotifyApi.getAccessToken();
+  if (!token) {
+    throw new Error('No hay token disponible para obtener cola');
+  }
+
   try {
-    // Obtener la instancia de API a usar
-    let spotifyApi = spotifyApiInstance;
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    };
+
+    const response = await fetch('https://api.spotify.com/v1/me/player/queue', { headers });
     
-    // Si no se proporcionó una instancia, obtenerla del manager usando el ID de usuario
-    if (!spotifyApi && userId) {
-      spotifyApi = await spotifyManager.getInstance(userId);
-    } else if (!spotifyApi) {
-      throw new Error('Se requiere una instancia de SpotifyAPI o un ID de usuario');
-    }
-    
-    // Obtener el token de acceso actual
-    const accessToken = spotifyApi.getAccessToken();
-    
-    if (!accessToken) {
-      throw new Error('No hay token de acceso disponible');
-    }
-    
-    // Hacer solicitud HTTP directa
-    const response = await fetch('https://api.spotify.com/v1/me/player/queue', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    // Si el token expiró y debemos refrescar
-    if (response.status === 401 && refreshTokenIfNeeded) {
-      console.log('🔄 Token de Spotify expirado, intentando refrescar...');
-      
-      // Refrescar token
-      try {
-        if (userId) {
-          // Si tenemos el ID del usuario, usar el método del manager
-          await spotifyManager.refreshAccessTokenForUser(userId);
-          // Obtener la instancia actualizada
-          spotifyApi = await spotifyManager.getInstance(userId);
-        } else {
-          // Si tenemos la instancia directamente
-          await spotifyApi.refreshAccessToken();
-        }
-        
-        console.log('✅ Token refrescado con éxito, reintentando petición');
-        
-        // Reintentar con token refrescado (sin volver a intentar refrescar para evitar bucles)
-        return await getSpotifyQueue(spotifyApi, userId, false);
-      } catch (refreshError) {
-        console.error('❌ Error al refrescar token:', refreshError);
-        throw new Error('No se pudo refrescar el token de acceso');
-      }
-    }
-    
-    // Si hay otros errores
     if (!response.ok) {
-      throw new Error(`Error en respuesta de Spotify: ${response.status} - ${await response.text()}`);
+      if (response.status === 401) {
+        throw new Error(`Token inválido o expirado (401)`);
+      }
+      if (response.status === 404) {
+        throw new Error(`No hay dispositivo activo (404)`);
+      }
+      throw new Error(`Error al obtener cola: ${response.status}`);
     }
     
-    // Convertir respuesta a JSON
-    return await response.json();
+    return response.json();
   } catch (error) {
-    console.error('Error al obtener cola de Spotify:', error);
+    console.error('Error obteniendo cola:', error.message);
     throw error;
+  }
+};
+
+/**
+ * Busca en Spotify y devuelve los mejores resultados
+ * @param {Object} spotifyApi - Instancia de la API de Spotify
+ * @param {string} query - Términos de búsqueda
+ * @param {string} type - Tipo de resultados (track, artist, album, playlist, etc)
+ * @param {number} limit - Cantidad máxima de resultados
+ * @returns {Promise<Array>} - Resultados de la búsqueda
+ */
+const search = async (spotifyApi, query, type = 'track', limit = 5) => {
+  try {
+    const result = await spotifyApi.search(query, [type], { limit });
+    return result.body;
+  } catch (error) {
+    console.error(`Error buscando "${query}":`, error.message);
+    throw error;
+  }
+};
+
+/**
+ * Comprueba si hay un dispositivo activo
+ * @param {Object} spotifyApi - Instancia API de Spotify
+ * @returns {Promise<boolean>} - True si hay un dispositivo activo
+ */
+const hasActiveDevice = async (spotifyApi) => {
+  try {
+    const devices = await spotifyApi.getMyDevices();
+    return devices.body.devices.some(device => device.is_active);
+  } catch (error) {
+    console.error('Error al comprobar dispositivos:', error.message);
+    return false;
   }
 };
 
@@ -95,8 +90,11 @@ const verifySpotifySession = async (spotifyApiInstance = null, userId = null) =>
     let spotifyApi = spotifyApiInstance;
     let effectiveUserId = userId;
     
+    console.log(`Verificando sesión de Spotify para usuario: ${userId || 'instancia directa'}`);
+    
     // Si no se proporcionó una instancia, obtenerla del manager usando el ID de usuario
     if (!spotifyApi && userId) {
+      console.log(`Obteniendo instancia de Spotify para usuario: ${userId}`);
       spotifyApi = await spotifyManager.getInstance(userId);
     } else if (!spotifyApi) {
       throw new Error('Se requiere una instancia de SpotifyAPI o un ID de usuario');
@@ -104,16 +102,27 @@ const verifySpotifySession = async (spotifyApiInstance = null, userId = null) =>
     
     // Si no tenemos userId pero tenemos instancia, intentar obtener su ID desde Redis
     if (!effectiveUserId && spotifyApi) {
+      console.log('Buscando userId asociado al token actual...');
       // Buscar en todas las instancias disponibles en el manager
       // Este es un enfoque simple - en una implementación más robusta podríamos tener un mapa inverso
       const allKeys = await redisClient.keys('spotify_tokens:*');
+      const currentAccessToken = spotifyApi.getAccessToken();
+      
+      console.log(`Encontradas ${allKeys.length} claves de tokens en Redis`);
+      
       for (const key of allKeys) {
-        const tokens = JSON.parse(await redisClient.get(key));
-        const currentAccessToken = spotifyApi.getAccessToken();
-        if (tokens && tokens.accessToken === currentAccessToken) {
-          effectiveUserId = key.split(':')[1]; // Extraer el ID de la clave
-          console.log(`Identificado userId "${effectiveUserId}" para la instancia de Spotify por coincidencia de token`);
-          break;
+        try {
+          const tokensStr = await redisClient.get(key);
+          if (!tokensStr) continue;
+          
+          const tokens = JSON.parse(tokensStr);
+          if (tokens && tokens.accessToken === currentAccessToken) {
+            effectiveUserId = key.split(':')[1]; // Extraer el ID de la clave
+            console.log(`Identificado userId "${effectiveUserId}" para la instancia de Spotify por coincidencia de token`);
+            break;
+          }
+        } catch (err) {
+          console.error(`Error al procesar clave ${key}:`, err.message);
         }
       }
     }
@@ -125,10 +134,13 @@ const verifySpotifySession = async (spotifyApiInstance = null, userId = null) =>
       return false;
     }
     
+    console.log(`Verificando token para ${effectiveUserId || 'usuario desconocido'}...`);
+    
     // Intentar hacer una petición simple para verificar que el token sea válido
     try {
       // Usamos una llamada ligera, que no consuma mucho ancho de banda
       await spotifyApi.getMe();
+      console.log(`Token válido para ${effectiveUserId || 'usuario desconocido'}`);
       return true; // Si llega aquí, el token es válido
     } catch (apiError) {
       // Si el error es por token expirado (401), intentamos renovarlo
@@ -141,6 +153,7 @@ const verifySpotifySession = async (spotifyApiInstance = null, userId = null) =>
         // Método 1: Intentar renovar usando el manager centralizado (si tenemos userId)
         if (effectiveUserId) {
           try {
+            console.log(`Intentando renovar token para ${effectiveUserId} usando manager...`);
             renewed = await spotifyManager.refreshAccessTokenForUser(effectiveUserId);
             if (renewed) {
               console.log(`Token renovado exitosamente para ${effectiveUserId} usando manager`);
@@ -155,6 +168,7 @@ const verifySpotifySession = async (spotifyApiInstance = null, userId = null) =>
         
         // Método 2: Intentar renovar directamente si el manager falló o no teníamos userId
         if (!renewed) {
+          console.log('Intentando renovación directa del token...');
           try {
             const refreshToken = spotifyApi.getRefreshToken();
             if (!refreshToken) {
@@ -162,21 +176,33 @@ const verifySpotifySession = async (spotifyApiInstance = null, userId = null) =>
               return false;
             }
             
+            console.log('Llamando a refreshAccessToken...');
             const data = await spotifyApi.refreshAccessToken();
             const { access_token, expires_in } = data.body;
             
+            console.log('Token renovado correctamente, actualizando instancia...');
             // Actualizar el token en la instancia
             spotifyApi.setAccessToken(access_token);
             
             // También guardar en Redis si tenemos el userId
             if (effectiveUserId) {
-              const tokens = JSON.parse(await redisClient.get(`spotify_tokens:${effectiveUserId}`));
-              if (tokens && tokens.refreshToken) {
-                await redisClient.set(`spotify_tokens:${effectiveUserId}`, JSON.stringify({
-                  accessToken: access_token,
-                  refreshToken: tokens.refreshToken,
-                  expiresAt: Date.now() + expires_in * 1000
-                }));
+              try {
+                console.log(`Guardando token renovado en Redis para ${effectiveUserId}`);
+                const tokensStr = await redisClient.get(`spotify_tokens:${effectiveUserId}`);
+                if (tokensStr) {
+                  const tokens = JSON.parse(tokensStr);
+                  if (tokens && tokens.refreshToken) {
+                    await redisClient.set(`spotify_tokens:${effectiveUserId}`, JSON.stringify({
+                      accessToken: access_token,
+                      refreshToken: tokens.refreshToken,
+                      expiresAt: Date.now() + expires_in * 1000
+                    }));
+                    console.log(`Token actualizado en Redis para ${effectiveUserId}`);
+                  }
+                }
+              } catch (redisError) {
+                console.error(`Error al guardar token en Redis para ${effectiveUserId}:`, redisError.message);
+                // Continuamos aunque falle el guardado en Redis
               }
             }
             
@@ -202,6 +228,8 @@ const verifySpotifySession = async (spotifyApiInstance = null, userId = null) =>
 };
 
 module.exports = {
-  getSpotifyQueue,
+  getQueue,
+  search,
+  hasActiveDevice,
   verifySpotifySession
 };

@@ -692,6 +692,9 @@ router.get('/queue', async (req, res) => {
     
     console.log('🔎 COLA: Obteniendo información de la cola...');
     
+    // Obtener instancia de SpotifyAPI para este usuario específico
+    const spotifyApi = await getSpotifyForRequest(req);
+    
     // 1. Primero obtenemos la información de la canción actual
     console.log('🎵 COLA: Obteniendo pista actual...');
     const currentPlayingTrack = await spotifyApi.getMyCurrentPlayingTrack();

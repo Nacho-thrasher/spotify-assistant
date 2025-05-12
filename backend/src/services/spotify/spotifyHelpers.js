@@ -3,16 +3,29 @@
  * Incluye funciones para manejo de autenticación y peticiones
  */
 
-const spotifyApi = require('../../config/spotify');
+// Reemplazar instancia global por el administrador de instancias
+const spotifyManager = require('./spotifyManager');
 
 /**
  * Obtiene la cola de reproducción directamente usando fetch
  * La biblioteca spotify-web-api-node no implementa este método
+ * @param {Object} spotifyApiInstance - Instancia de la API de Spotify a usar
+ * @param {string} userId - ID del usuario (sólo necesario si no se proporciona spotifyApiInstance)
  * @param {boolean} refreshTokenIfNeeded - Si se debe intentar refrescar el token en caso de error 401
  * @returns {Promise<Object>} - Datos de la cola
  */
-const getSpotifyQueue = async (refreshTokenIfNeeded = true) => {
+const getSpotifyQueue = async (spotifyApiInstance = null, userId = null, refreshTokenIfNeeded = true) => {
   try {
+    // Obtener la instancia de API a usar
+    let spotifyApi = spotifyApiInstance;
+    
+    // Si no se proporcionó una instancia, obtenerla del manager usando el ID de usuario
+    if (!spotifyApi && userId) {
+      spotifyApi = await spotifyManager.getInstance(userId);
+    } else if (!spotifyApi) {
+      throw new Error('Se requiere una instancia de SpotifyAPI o un ID de usuario');
+    }
+    
     // Obtener el token de acceso actual
     const accessToken = spotifyApi.getAccessToken();
     
@@ -35,11 +48,20 @@ const getSpotifyQueue = async (refreshTokenIfNeeded = true) => {
       
       // Refrescar token
       try {
-        await spotifyApi.refreshAccessToken();
+        if (userId) {
+          // Si tenemos el ID del usuario, usar el método del manager
+          await spotifyManager.refreshAccessTokenForUser(userId);
+          // Obtener la instancia actualizada
+          spotifyApi = await spotifyManager.getInstance(userId);
+        } else {
+          // Si tenemos la instancia directamente
+          await spotifyApi.refreshAccessToken();
+        }
+        
         console.log('✅ Token refrescado con éxito, reintentando petición');
         
         // Reintentar con token refrescado (sin volver a intentar refrescar para evitar bucles)
-        return await getSpotifyQueue(false);
+        return await getSpotifyQueue(spotifyApi, userId, false);
       } catch (refreshError) {
         console.error('❌ Error al refrescar token:', refreshError);
         throw new Error('No se pudo refrescar el token de acceso');
@@ -61,10 +83,22 @@ const getSpotifyQueue = async (refreshTokenIfNeeded = true) => {
 
 /**
  * Verifica el estado de la sesión de Spotify y refresca el token si es necesario
+ * @param {Object} spotifyApiInstance - Instancia de la API de Spotify a usar
+ * @param {string} userId - ID del usuario (sólo necesario si no se proporciona spotifyApiInstance)
  * @returns {Promise<boolean>} - true si la sesión es válida
  */
-const verifySpotifySession = async () => {
+const verifySpotifySession = async (spotifyApiInstance = null, userId = null) => {
   try {
+    // Obtener la instancia de API a usar
+    let spotifyApi = spotifyApiInstance;
+    
+    // Si no se proporcionó una instancia, obtenerla del manager usando el ID de usuario
+    if (!spotifyApi && userId) {
+      spotifyApi = await spotifyManager.getInstance(userId);
+    } else if (!spotifyApi) {
+      throw new Error('Se requiere una instancia de SpotifyAPI o un ID de usuario');
+    }
+    
     // Intentar una operación simple para verificar sesión
     const currentUser = await spotifyApi.getMe();
     return true;
@@ -72,7 +106,13 @@ const verifySpotifySession = async () => {
     // Si el error es 401, intentar refrescar el token
     if (error.statusCode === 401) {
       try {
-        await spotifyApi.refreshAccessToken();
+        if (userId) {
+          // Si tenemos el ID del usuario, usar el método del manager
+          await spotifyManager.refreshAccessTokenForUser(userId);
+        } else {
+          // Si tenemos la instancia directamente
+          await spotifyApi.refreshAccessToken();
+        }
         console.log('✅ Token refrescado automáticamente');
         return true;
       } catch (refreshError) {

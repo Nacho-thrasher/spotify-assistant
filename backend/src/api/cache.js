@@ -6,8 +6,8 @@
 const express = require('express');
 const router = express.Router();
 const { redisClient, getAsync, setAsync, DEFAULT_EXPIRATION } = require('../config/redis');
-const cacheService = require('../services/cacheService');
-const spotifyApi = require('../config/spotify');
+const cacheService = require('../services/cache/cacheService');
+const getSpotifyForRequest = require('../services/spotify/getSpotifyInstance');
 const queueService = require('../services/spotify/queueService');
 
 // Constante para el ID de usuario por defecto
@@ -84,6 +84,9 @@ router.get('/queue', async (req, res) => {
     
     // Obtener la reproducción actual
     console.time('Tiempo obtener reproducción actual');
+    // Obtener instancia específica para este usuario
+    const spotifyApi = await getSpotifyForRequest(req);
+    
     const playbackData = await cacheService.getCachedData(
       cacheService.CACHE_PREFIXES.SPOTIFY_NOW_PLAYING + userId,
       async () => {

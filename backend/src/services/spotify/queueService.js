@@ -3,7 +3,8 @@
  * Implementa métodos que la biblioteca spotify-web-api-node no provee nativamente
  */
 
-const spotifyApi = require('../../config/spotify');
+// Reemplazar instancia global por el administrador de instancias
+const spotifyManager = require('./spotifyManager');
 const { redisClient } = require('../../config/redis');
 const spotifyCache = require('../cache/spotifyCache');
 
@@ -22,14 +23,17 @@ const getQueue = async (userId) => {
         // Usar el helper para obtener la cola con manejo mejorado de autenticación
         const spotifyHelpers = require('./spotifyHelpers');
         
+        // Obtener instancia de Spotify para este usuario
+        const spotifyApi = await spotifyManager.getInstance(userId);
+        
         // Intentar verificar la sesión primero
-        const sessionValid = await spotifyHelpers.verifySpotifySession();
+        const sessionValid = await spotifyHelpers.verifySpotifySession(spotifyApi, userId);
         if (!sessionValid) {
           throw new Error('Sesión de Spotify no válida');
         }
         
         // Obtener cola con soporte de refresco de token automático
-        return await spotifyHelpers.getSpotifyQueue();
+        return await spotifyHelpers.getSpotifyQueue(spotifyApi, userId);
       },
       {},
       10 // 10 segundos de caché
@@ -65,7 +69,10 @@ const playQueueItem = async (userId, index) => {
       throw new Error('No se pudo obtener información de la canción seleccionada');
     }
     
-    // 3. Reproducir directamente usando su URI
+    // 3. Obtener la instancia de Spotify del usuario específico
+    const spotifyApi = await spotifyManager.getInstance(userId);
+    
+    // 4. Reproducir directamente usando su URI
     await spotifyApi.play({ uris: [selectedTrack.uri] });
     
     // 4. Invalidar caché después del cambio

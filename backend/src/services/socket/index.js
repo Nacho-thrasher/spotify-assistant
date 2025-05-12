@@ -2,6 +2,8 @@
  * Servicio de Socket.io para comunicación en tiempo real
  */
 const { Server } = require('socket.io');
+const { processMessage, registerUserCorrection } = require('../ai/openai');
+const spotifyManager = require('../spotify/spotifyManager');
 
 // Estructura para almacenar conexiones activas con metadatos
 // userId -> { socketId, lastActivity, connection: timestamp }
@@ -108,27 +110,91 @@ function initializeSocketServer(httpServer) {
     socket.on('assistant_message', (data) => {
       console.log(`Mensaje recibido de ${socket.userId}:`, data.message);
       
-      // Actualizar actividad
+      // Actualizar última actividad
       updateUserActivity(socket.userId);
       
-      // En el futuro, aquí procesaríamos el mensaje con la IA
-      // Por ahora, solo respondemos con un eco
-      setTimeout(() => {
-        socket.emit('assistant_response', {
-          message: `Recibido: ${data.message}`,
-          timestamp: new Date()
-        });
-      }, 1000);
+      // Aquí iría la lógica para procesar el mensaje y responder
+      // Por ejemplo, enviar a OpenAI, procesar comandos, etc.
     });
-
-    // Evento para actualizaciones de Spotify (reproducción, playlists, etc.)
-    socket.on('spotify_update', (data) => {
-      console.log(`Actualización de Spotify de ${socket.userId}:`, data);
+    
+    // Manejar mensajes del cliente
+    socket.on('message', async (data) => {
+      try {
+        const message = data.message;
+        console.log(`Mensaje para procesar de ${socket.userId}:`, message);
+        
+        // Actualizar última actividad
+        updateUserActivity(socket.userId);
+        
+        // Procesar el mensaje con el contexto de reproducción si está disponible
+        const response = await processMessage(message, data.playbackContext, socket.userId);
+        
+        // Enviar respuesta al cliente
+        socket.emit('assistant_response', {
+          message: response.message,
+          action: response.action,
+          parameters: response.parameters,
+          timestamp: Date.now()
+        });
+      } catch (error) {
+        console.error('Error al procesar mensaje:', error);
+        socket.emit('assistant_response', {
+          message: 'Lo siento, ha ocurrido un error al procesar tu mensaje.',
+          action: 'error',
+          parameters: {},
+          timestamp: Date.now()
+        });
+      }
+    });
+    
+    // Manejar feedback del usuario
+    socket.on('user_feedback', (data) => {
+      const { originalMessage, originalAction, feedbackType } = data;
+      console.log(`📝 Feedback recibido: ${feedbackType} para "${originalMessage}" (${originalAction})`);
       
-      // Actualizar actividad
-      updateUserActivity(socket.userId);
+      // Aquí podríamos registrar el feedback positivo si quisiéramos
+      // Por ahora solo registramos las correcciones explícitas
+    });
+    
+    // Manejar correcciones del usuario
+    socket.on('user_correction', async (data) => {
+      const { originalMessage, originalAction, correctedAction, correctedParameters } = data;
       
-      // Aquí procesaríamos las actualizaciones y enviaríamos respuestas
+      console.log(`🔄 Corrección recibida:`);
+      console.log(`   • Mensaje original: "${originalMessage}"`);
+      console.log(`   • Acción detectada: ${originalAction}`);
+      console.log(`   • Acción corregida: ${correctedAction}`);
+      
+      try {
+        // Registrar la corrección para aprendizaje
+        await registerUserCorrection(
+          socket.userId || 'anonymous',
+          originalMessage,
+          originalAction,
+          correctedAction,
+          correctedParameters
+        );
+        
+        // Opcionalmente, ejecutar la acción corregida inmediatamente
+        if (correctedAction && correctedAction !== originalAction) {
+          // Aquí iría la lógica para ejecutar la acción corregida
+          // Por ejemplo, obtener la API de Spotify y ejecutar la acción
+          
+          socket.emit('action_result', {
+            success: true,
+            message: `Corrección registrada: ${correctedAction}`,
+            action: correctedAction,
+            originalMessage
+          });
+        }
+      } catch (error) {
+        console.error('Error al procesar corrección:', error);
+        socket.emit('action_result', {
+          success: false,
+          message: 'Error al procesar la corrección',
+          error: error.message
+        });
+      }
     });
     
     // Actualizar actividad en cada evento de ping (mantener conexión viva)

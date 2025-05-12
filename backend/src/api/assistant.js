@@ -267,170 +267,166 @@ router.post('/message', async (req, res) => {
         break;
         
       case 'queue':
-        if (parameters && parameters.query) {
-          console.log('🔍 QUEUE: Buscando para añadir a la cola');
-          console.log('   • Consulta:', parameters.query);
-          
-          try {
-            // Buscar la canción en Spotify
-            const searchResults = await spotifyApi.search(parameters.query, ['track'], { limit: 3 });
+        // Manejar tanto consulta única como múltiples consultas
+        if (parameters && (parameters.query || (parameters.queries && Array.isArray(parameters.queries)))) {
+          // Caso 1: Múltiples canciones (parameters.queries)
+          if (parameters.queries && Array.isArray(parameters.queries) && parameters.queries.length > 0) {
+            const songQueries = parameters.queries;
+            console.log(`🎼 MULTI-COLA: Procesando ${songQueries.length} solicitudes de canciones`);
             
-            console.log('💾 SPOTIFY: Resultados de búsqueda para cola');
-            console.log('   • Canciones encontradas:', searchResults.body.tracks.items.length);
+            // Resultados del procesamiento
+            const results = [];
+            const successfulTracks = [];
+            const failedQueries = [];
             
-            if (searchResults.body.tracks.items.length > 0) {
-              const track = searchResults.body.tracks.items[0];
-              console.log('🎵 SPOTIFY: Mejor coincidencia para cola');
-              console.log('   • Pista:', track.name);
-              console.log('   • Artista:', track.artists[0].name);
+            // Procesar cada canción secuencialmente
+            for (let i = 0; i < songQueries.length; i++) {
+              const songQuery = songQueries[i];
+              console.log(`🔎 MULTI-COLA [${i+1}/${songQueries.length}]: Buscando "${songQuery}"`);
               
-              // Añadir la canción a la cola
-              console.log('⏭️ SPOTIFY: Añadiendo a la cola');
-              await spotifyApi.addToQueue(track.uri);
-              console.log('   • Comando enviado correctamente');
-              console.log('   • URI:', track.uri);
+              try {
+                // Buscar la canción en Spotify
+                const searchResults = await spotifyApi.search(songQuery, ['track'], { limit: 3 });
+                
+                if (searchResults.body.tracks.items.length > 0) {
+                  const track = searchResults.body.tracks.items[0];
+                  console.log(`✅ MULTI-COLA [${i+1}]: Encontrado "${track.name}" de ${track.artists[0].name}`);
+                  
+                  // Añadir a la cola
+                  await spotifyApi.addToQueue(track.uri);
+                  
+                  // Registrar éxito
+                  successfulTracks.push({
+                    name: track.name,
+                    artist: track.artists[0].name,
+                    album: track.album.name,
+                    image: track.album.images[0]?.url,
+                    uri: track.uri,
+                    addedToQueue: true
+                  });
+                  
+                  // Mantener en caché global para seguimiento
+                  if (!global.spotifyQueueCache) {
+                    global.spotifyQueueCache = [];
+                  }
+                  
+                  global.spotifyQueueCache.push({
+                    name: track.name,
+                    artist: track.artists[0].name,
+                    album: track.album.name,
+                    image: track.album.images[0]?.url,
+                    uri: track.uri
+                  });
+                  
+                  results.push({
+                    query: songQuery,
+                    success: true,
+                    track: track.name,
+                    artist: track.artists[0].name
+                  });
+                } else {
+                  console.log(`❌ MULTI-COLA [${i+1}]: No se encontró "${songQuery}"`);
+                  failedQueries.push(songQuery);
+                  results.push({
+                    query: songQuery,
+                    success: false,
+                    message: `No se encontró "${songQuery}"`
+                  });
+                }
+              } catch (err) {
+                console.error(`⚠️ ERROR MULTI-COLA [${i+1}]:`, err.message || err);
+                failedQueries.push(songQuery);
+                results.push({
+                  query: songQuery,
+                  success: false,
+                  message: `Error procesando "${songQuery}"`
+                });
+              }
+            }
+            
+            // Generar mensaje de respuesta basado en resultados
+            if (successfulTracks.length > 0) {
+              const successMessage = successfulTracks.length === 1 ?
+                `Añadido "${successfulTracks[0].name}" de ${successfulTracks[0].artist} a la cola` :
+                `Añadidas ${successfulTracks.length} canciones a la cola de reproducción`;
+                
+              let detailMessage = '';
+              if (successfulTracks.length > 1) {
+                detailMessage = ': ' + successfulTracks.map(t => `"${t.name}" de ${t.artist}`).join(', ');
+              }
               
-              // Actualizar el mensaje de respuesta
-              response.message = `Añadido "${track.name}" de ${track.artists[0].name} a la cola de reproducción`;
+              let failMessage = '';
+              if (failedQueries.length > 0) {
+                failMessage = `. No pude encontrar: ${failedQueries.map(q => `"${q}"`).join(', ')}`;
+              }
               
-              // Incluir información de la canción en la respuesta
-              response.track = {
-                name: track.name,
-                artist: track.artists[0].name,
-                album: track.album.name,
-                image: track.album.images[0]?.url,
-                addedToQueue: true
-              };
+              response.message = successMessage + detailMessage + failMessage;
+              response.tracks = successfulTracks;
+              response.queue = global.spotifyQueueCache || [];
             } else {
-              console.log('❌ SPOTIFY: Sin resultados para cola');
-              console.log('   • Consulta fallida:', parameters.query);
               response = {
                 action: 'error',
-                message: `No encontré "${parameters.query}" en Spotify para añadir a la cola`
+                message: `No pude encontrar ninguna de las canciones solicitadas: ${failedQueries.map(q => `"${q}"`).join(', ')}`
               };
             }
-          } catch (err) {
-            console.error('⚠️ ERROR: Fallo al añadir a la cola');
-            console.error('   • Mensaje:', err.message || err);
-            response = {
-              action: 'error',
-              message: 'Ocurrió un error al intentar añadir a la cola. Por favor, intenta de nuevo.'
-            };
+          }
+          // Caso 2: Una sola canción (parameters.query)
+          else if (parameters.query) {
+            console.log('🔍 QUEUE: Buscando para añadir a la cola');
+            console.log('   • Consulta:', parameters.query);
+            
+            try {
+              // Buscar la canción en Spotify
+              const searchResults = await spotifyApi.search(parameters.query, ['track'], { limit: 3 });
+              
+              console.log('💾 SPOTIFY: Resultados de búsqueda para cola');
+              console.log('   • Canciones encontradas:', searchResults.body.tracks.items.length);
+              
+              if (searchResults.body.tracks.items.length > 0) {
+                const track = searchResults.body.tracks.items[0];
+                console.log('🎵 SPOTIFY: Mejor coincidencia para cola');
+                console.log('   • Pista:', track.name);
+                console.log('   • Artista:', track.artists[0].name);
+                
+                // Añadir la canción a la cola
+                console.log('⏭️ SPOTIFY: Añadiendo a la cola');
+                await spotifyApi.addToQueue(track.uri);
+                console.log('   • Comando enviado correctamente');
+                console.log('   • URI:', track.uri);
+                
+                // Actualizar el mensaje de respuesta
+                response.message = `Añadido "${track.name}" de ${track.artists[0].name} a la cola de reproducción`;
+                
+                // Incluir información de la canción en la respuesta
+                response.track = {
+                  name: track.name,
+                  artist: track.artists[0].name,
+                  album: track.album.name,
+                  image: track.album.images[0]?.url,
+                  addedToQueue: true
+                };
+              } else {
+                console.log('❌ SPOTIFY: Sin resultados para cola');
+                console.log('   • Consulta fallida:', parameters.query);
+                response = {
+                  action: 'error',
+                  message: `No encontré "${parameters.query}" en Spotify para añadir a la cola`
+                };
+              }
+            } catch (err) {
+              console.error('⚠️ ERROR: Fallo al añadir a la cola');
+              console.error('   • Mensaje:', err.message || err);
+              response = {
+                action: 'error',
+                message: 'Ocurrió un error al intentar añadir a la cola. Por favor, intenta de nuevo.'
+              };
+            }
           }
         } else {
           console.log('No se proporcionó consulta para añadir a la cola');
           response = {
             action: 'error',
             message: 'No entendí qué cancion quieres añadir a la cola.'
-          };
-        }
-        break;
-        
-      case 'queue_multiple':
-        if (parameters && parameters.queries && Array.isArray(parameters.queries) && parameters.queries.length > 0) {
-          const songQueries = parameters.queries;
-          console.log(`🎼 MULTI-COLA: Procesando ${songQueries.length} solicitudes de canciones`);
-          
-          // Resultados del procesamiento
-          const results = [];
-          const successfulTracks = [];
-          const failedQueries = [];
-          
-          // Procesar cada canción secuencialmente
-          for (let i = 0; i < songQueries.length; i++) {
-            const songQuery = songQueries[i];
-            console.log(`🔎 MULTI-COLA [${i+1}/${songQueries.length}]: Buscando "${songQuery}"`);
-            
-            try {
-              // Buscar la canción en Spotify
-              const searchResults = await spotifyApi.search(songQuery, ['track'], { limit: 3 });
-              
-              if (searchResults.body.tracks.items.length > 0) {
-                const track = searchResults.body.tracks.items[0];
-                console.log(`✅ MULTI-COLA [${i+1}]: Encontrado "${track.name}" de ${track.artists[0].name}`);
-                
-                // Añadir a la cola
-                await spotifyApi.addToQueue(track.uri);
-                
-                // Registrar éxito
-                successfulTracks.push({
-                  name: track.name,
-                  artist: track.artists[0].name,
-                  album: track.album.name,
-                  image: track.album.images[0]?.url,
-                  uri: track.uri,
-                  addedToQueue: true
-                });
-                
-                // Mantener en caché global para seguimiento
-                if (!global.spotifyQueueCache) {
-                  global.spotifyQueueCache = [];
-                }
-                
-                global.spotifyQueueCache.push({
-                  name: track.name,
-                  artist: track.artists[0].name,
-                  album: track.album.name,
-                  image: track.album.images[0]?.url,
-                  uri: track.uri
-                });
-                
-                results.push({
-                  query: songQuery,
-                  success: true,
-                  track: track.name,
-                  artist: track.artists[0].name
-                });
-              } else {
-                console.log(`❌ MULTI-COLA [${i+1}]: No se encontró "${songQuery}"`);
-                failedQueries.push(songQuery);
-                results.push({
-                  query: songQuery,
-                  success: false,
-                  message: `No se encontró "${songQuery}"`
-                });
-              }
-            } catch (err) {
-              console.error(`⚠️ ERROR MULTI-COLA [${i+1}]:`, err.message || err);
-              failedQueries.push(songQuery);
-              results.push({
-                query: songQuery,
-                success: false,
-                message: `Error procesando "${songQuery}"`
-              });
-            }
-          }
-          
-          // Generar mensaje de respuesta basado en resultados
-          if (successfulTracks.length > 0) {
-            const successMessage = successfulTracks.length === 1 ?
-              `Añadido "${successfulTracks[0].name}" de ${successfulTracks[0].artist} a la cola` :
-              `Añadidas ${successfulTracks.length} canciones a la cola de reproducción`;
-              
-            let detailMessage = '';
-            if (successfulTracks.length > 1) {
-              detailMessage = ': ' + successfulTracks.map(t => `"${t.name}" de ${t.artist}`).join(', ');
-            }
-            
-            let failMessage = '';
-            if (failedQueries.length > 0) {
-              failMessage = `. No pude encontrar: ${failedQueries.map(q => `"${q}"`).join(', ')}`;
-            }
-            
-            response.message = successMessage + detailMessage + failMessage;
-            response.tracks = successfulTracks;
-            response.queue = global.spotifyQueueCache || [];
-          } else {
-            response = {
-              action: 'error',
-              message: `No pude encontrar ninguna de las canciones solicitadas: ${failedQueries.map(q => `"${q}"`).join(', ')}`
-            };
-          }
-        } else {
-          console.log('No se proporcionaron consultas para multi-cola');
-          response = {
-            action: 'error',
-            message: 'No entendí qué canciones quieres añadir a la cola.'
           };
         }
         break;

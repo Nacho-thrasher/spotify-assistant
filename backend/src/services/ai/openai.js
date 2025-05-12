@@ -2,6 +2,7 @@
  * Servicio de integración con OpenAI para procesar mensajes del usuario
  */
 const OpenAI = require('openai');
+const userFeedback = require('./userFeedback');
 
 // Inicializar cliente de OpenAI si hay una clave API disponible
 let openai = null;
@@ -133,73 +134,98 @@ function saveToHistory(command) {
  * Función para procesar un mensaje del usuario utilizando OpenAI
  * @param {string} message - Mensaje del usuario
  * @param {Object} playbackContext - Contexto actual de reproducción (opcional)
+ * @param {string} userId - ID del usuario (opcional)
  * @returns {Object} - Acción a realizar y mensaje de respuesta
  */
-async function processMessage(message, playbackContext = null) {
-  // Guardar el mensaje en el histórico
+async function processMessage(message, playbackContext = null, userId = 'anonymous') {
+  // Guardar el comando en el histórico
   saveToHistory(message);
   
-  // Si no tenemos OpenAI configurado, usar procesamiento simple
-  if (!openai) {
-    console.log('⚠️ No hay API key de OpenAI configurada, usando procesamiento simple');
-    return processMessageSimple(message);
-  }
-  
-  // Preparar el contexto completo para el prompt
-  const context = {
-    currentTrack: playbackContext?.currentlyPlaying || null,
-    queue: playbackContext?.nextInQueue || [],
-    history: commandHistory.slice(1) // Excluir el comando actual
-  };
-  
   try {
-    console.log('🤖 Procesando mensaje con OpenAI usando contexto enriquecido');
-    
-    // Generar el prompt con el contexto actual
-    const systemPrompt = getSystemPrompt(context);
-    
-    // Enviar mensaje a OpenAI
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o", // o "gpt-3.5-turbo" para un modelo más ligero y económico
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: message }
-      ],
-      response_format: { type: "json_object" }
-    });
-
-    // Extraer y procesar la respuesta
-    const responseContent = completion.choices[0].message.content;
-    console.log('✨ Respuesta recibida de OpenAI');
-    
-    try {
-      const parsedResponse = JSON.parse(responseContent);
-
-      // Validar que la respuesta tenga el formato correcto
-      if (!parsedResponse.action || !parsedResponse.message) {
-        throw new Error('La respuesta de OpenAI no tiene el formato esperado');
+    // Si OpenAI está disponible, usar el modelo
+    if (openai) {
+      // Preparar el contexto completo para el prompt
+      let context = {
+        currentTrack: null,
+        queue: [],
+        history: commandHistory.slice(1) // Excluir el comando actual
+      };
+      
+      // Manejar posibles errores al obtener el contexto de reproducción
+      if (playbackContext) {
+        try {
+          context.currentTrack = playbackContext.currentlyPlaying || null;
+          context.queue = playbackContext.nextInQueue || [];
+        } catch (error) {
+          console.warn('⚠️ Error al procesar el contexto de reproducción:', error.message);
+          // Continuar con el contexto vacío
+        }
       }
       
-      console.log(`👉 Acción identificada: ${parsedResponse.action}`);
-      return parsedResponse;
-    } catch (parseError) {
-      console.error('Error al parsear la respuesta JSON:', parseError);
-      throw new Error('No se pudo interpretar la respuesta de OpenAI como JSON válido');
+      try {
+        console.log('🤖 Procesando mensaje con OpenAI usando contexto enriquecido');
+        
+        // Generar el prompt con el contexto actual
+        const systemPrompt = getSystemPrompt(context);
+        
+        // Enviar mensaje a OpenAI
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o", // o "gpt-3.5-turbo" para un modelo más ligero y económico
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: message }
+          ],
+          response_format: { type: "json_object" }
+        });
+
+        // Extraer y procesar la respuesta
+        const responseContent = completion.choices[0].message.content;
+        console.log('✨ RESPUESTA DE OPENAI:', responseContent);
+        
+        try {
+          // Intentar parsear la respuesta como JSON
+          const parsedResponse = JSON.parse(responseContent);
+          
+          // Registrar la interacción para aprendizaje (asíncrono, no bloqueante)
+          userFeedback.logInteraction({
+            userId,
+            userMessage: message,
+            detectedAction: parsedResponse.action,
+            parameters: parsedResponse.parameters || {},
+            successful: true // Asumimos éxito inicial
+          }).catch(err => console.error('Error al registrar interacción:', err));
+          
+          return parsedResponse;
+        } catch (error) {
+          console.error('Error al parsear la respuesta JSON:', error);
+          throw new Error('No se pudo interpretar la respuesta de OpenAI como JSON válido');
+        }
+      } catch (error) {
+        console.error('Error procesando mensaje con OpenAI:', error);
+        // Fallback a procesamiento simple
+        console.log('♻️ Fallback: Usando procesamiento simple por error');
+        const result = await processMessageSimple(message, userId);
+        return result;
+      }
+    } else {
+      // Fallback a procesamiento simple
+      console.log('⚠️ OpenAI no disponible, usando procesamiento simple');
+      const result = await processMessageSimple(message, userId);
+      return result;
     }
   } catch (error) {
-    console.error('Error procesando mensaje con OpenAI:', error);
-    // Fallback al procesamiento simple si hay un error
-    console.log('♻️ Fallback: Usando procesamiento simple por error');
-    return processMessageSimple(message);
+    console.error('Error procesando mensaje:', error);
+    throw new Error('Error al procesar el mensaje');
   }
 }
 
 /**
  * Procesamiento simple de mensajes (fallback si OpenAI no está disponible)
  * @param {string} message - Mensaje del usuario
+ * @param {string} userId - ID del usuario (opcional)
  * @returns {Object} - Acción a realizar y mensaje de respuesta
  */
-function processMessageSimple(message) {
+async function processMessageSimple(message, userId = 'anonymous') {
   console.log('\n\n✨ PROCESAMIENTO DE MENSAJE ✨');
   console.log('💬 ENTRADA:', message);
   const lowerMessage = message.toLowerCase();
@@ -207,9 +233,17 @@ function processMessageSimple(message) {
   let parameters = {};
   let responseMessage = 'No estoy seguro de lo que quieres hacer. Prueba con comandos como "reproducir rock" o "pausar música".';
   
+  // Obtener patrones de aprendizaje para mejorar la detección
+  let learningPatterns = {};
+  try {
+    learningPatterns = await userFeedback.getLearningPatterns();
+  } catch (error) {
+    console.error('Error al obtener patrones de aprendizaje:', error);
+  }
+  
   // Evaluar si el mensaje parece claramente una solicitud para añadir a la cola
   // MEJORADO: Ahora detecta comandos simples como "cola [canción]" sin necesidad de verbos
-  const isQueueRequest = 
+  let isQueueRequest = 
     // Caso 1: Palabra "cola" o "queue" al inicio del mensaje (comando simple)
     lowerMessage.startsWith('cola ') || lowerMessage.startsWith('queue ') ||
     
@@ -225,6 +259,77 @@ function processMessageSimple(message) {
      lowerMessage.includes('coloca') || lowerMessage.includes('incluye') ||
      lowerMessage.includes('meter') || lowerMessage.includes('mete') ||
      lowerMessage.includes('add'));
+     
+  // NUEVO: Detectar comandos simples como "agregar [canción]" sin mencionar explícitamente la cola
+  if (!isQueueRequest && 
+      (lowerMessage.startsWith('agregar ') || 
+       lowerMessage.startsWith('añadir ') || 
+       lowerMessage.startsWith('agrega ') || 
+       lowerMessage.startsWith('añade '))) {
+    // Verificar que no sea otro tipo de comando (como volumen, etc.)
+    if (!lowerMessage.includes('volum') && 
+        !lowerMessage.includes('anterior') && 
+        !lowerMessage.includes('siguiente') && 
+        !lowerMessage.includes('pausa') && 
+        !lowerMessage.includes('stop') && 
+        !lowerMessage.includes('continua')) {
+      console.log('🔍 Detectado comando simple de agregar sin mencionar cola');
+      isQueueRequest = true;
+    }
+  }
+
+  // Aplicar patrones de aprendizaje si existen
+  if (learningPatterns && Object.keys(learningPatterns).length > 0) {
+    // Verificar si algún patrón aprendido coincide con el mensaje actual
+    for (const [originalAction, corrections] of Object.entries(learningPatterns)) {
+      for (const [correctedAction, patterns] of Object.entries(corrections)) {
+        // Buscar coincidencias en los patrones
+        const matchingPattern = patterns.find(pattern => 
+          lowerMessage.includes(pattern.trigger) || 
+          pattern.trigger.includes(lowerMessage)
+        );
+        
+        if (matchingPattern && matchingPattern.count >= 2) { // Aplicar solo si ha ocurrido al menos 2 veces
+          console.log(`🧠 APRENDIZAJE: Aplicando corrección de "${originalAction}" a "${correctedAction}"`);
+          console.log(`   • Patrón: "${matchingPattern.trigger}" (visto ${matchingPattern.count} veces)`);
+          
+          // Si estamos por detectar la acción original, cambiarla por la corregida
+          if (
+            (originalAction === 'queue' && isQueueRequest) ||
+            (originalAction === 'play' && (lowerMessage.includes('reproduc') || lowerMessage.includes('play'))) ||
+            // Añadir más casos según sea necesario
+            (originalAction === 'info' && action === 'info')
+          ) {
+            console.log(`   • Cambiando acción detectada a: ${correctedAction}`);
+            
+            // Forzar la acción corregida
+            if (correctedAction === 'queue') {
+              isQueueRequest = true;
+            } else if (correctedAction === 'play') {
+              // Forzar detección como reproducción
+              action = 'play';
+              parameters = { query: lowerMessage };
+              responseMessage = `Reproduciendo "${lowerMessage}"`;
+              
+              // Registrar la aplicación del aprendizaje (asíncrono)
+              userFeedback.logInteraction({
+                userId,
+                userMessage: message,
+                detectedAction: correctedAction,
+                parameters,
+                successful: true,
+                appliedLearning: true,
+                originalDetection: originalAction
+              }).catch(err => console.error('Error al registrar interacción con aprendizaje:', err));
+              
+              return { action, parameters, message: responseMessage };
+            }
+            // Añadir más acciones según sea necesario
+          }
+        }
+      }
+    }
+  }
 
   // Añadir a la cola (si parece una solicitud de cola)
   if (isQueueRequest) {
@@ -395,8 +500,8 @@ function processMessageSimple(message) {
         songQueries.forEach((song, index) => {
           console.log(`   • [${index + 1}] ${song}`);
         });
-        // MEJORADO: Usar acción multi_queue en lugar de queue_multiple para consistencia
-        action = 'multi_queue';
+        // MEJORADO: Usar acción queue con múltiples consultas en lugar de multi_queue
+        action = 'queue';
         parameters = { queries: songQueries };
         
         // Limitar el número de canciones mostradas en la respuesta para mensajes más cortos
@@ -622,6 +727,15 @@ function processMessageSimple(message) {
     parameters = { infoType, subject };
   }
   
+  // Registrar la interacción para aprendizaje (asíncrono, no bloqueante)
+  userFeedback.logInteraction({
+    userId,
+    userMessage: message,
+    detectedAction: action,
+    parameters,
+    successful: true // Asumimos éxito inicial
+  }).catch(err => console.error('Error al registrar interacción:', err));
+  
   return {
     action,
     parameters,
@@ -629,6 +743,34 @@ function processMessageSimple(message) {
   };
 }
 
+/**
+ * Registra el feedback del usuario sobre una acción
+ * @param {string} userId - ID del usuario
+ * @param {string} originalMessage - Mensaje original
+ * @param {string} originalAction - Acción detectada originalmente
+ * @param {string} correctedAction - Acción correcta según el usuario
+ * @param {Object} correctedParameters - Parámetros correctos
+ * @returns {boolean} - Si se registró correctamente
+ */
+async function registerUserCorrection(userId, originalMessage, originalAction, correctedAction, correctedParameters = {}) {
+  try {
+    await userFeedback.logCorrection({
+      userId,
+      originalMessage,
+      originalAction,
+      correctedAction,
+      correctedParameters
+    });
+    
+    console.log(`✅ Corrección registrada: "${originalAction}" → "${correctedAction}"`);
+    return true;
+  } catch (error) {
+    console.error('Error al registrar corrección:', error);
+    return false;
+  }
+}
+
 module.exports = {
-  processMessage
+  processMessage,
+  registerUserCorrection
 };

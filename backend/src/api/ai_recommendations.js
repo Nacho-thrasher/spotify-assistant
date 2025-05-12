@@ -166,6 +166,7 @@ NO INCLUYAS ningún texto antes o después del JSON. SOLO devuelve el array JSON
     }
     
     try {
+      console.log('Respuesta recibida:', response);
       const jsonResponse = JSON.parse(response);
       
       // La respuesta puede venir en diferentes formatos, intentamos manejarlos todos

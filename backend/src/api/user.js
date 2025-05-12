@@ -762,7 +762,7 @@ router.get('/queue', async (req, res) => {
       await spotifyHelpers.verifySpotifySession(spotifyApi, userId);
       
       // Obtener cola con soporte de refresco de token automático
-      const queueData = await spotifyHelpers.getSpotifyQueue(spotifyApi, userId);
+      const queueData = await spotifyHelpers.getQueue(spotifyApi);
       
       if (queueData && queueData.queue) {
         console.log(`👉 COLA REAL SPOTIFY: ${queueData.queue.length} elementos encontrados`);

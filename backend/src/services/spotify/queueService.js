@@ -33,7 +33,7 @@ const getQueue = async (userId) => {
         }
         
         // Obtener cola con soporte de refresco de token automático
-        return await spotifyHelpers.getSpotifyQueue(spotifyApi, userId);
+        return await spotifyHelpers.getQueue(spotifyApi);
       },
       {},
       10 // 10 segundos de caché

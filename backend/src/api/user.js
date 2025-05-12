@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const spotifyApi = require('../config/spotify');
+// Reemplazar la instancia única por el helper para instancias por usuario
+const getSpotifyForRequest = require('../services/spotify/getSpotifyInstance');
 const userHistory = require('../services/history/userHistory'); // Importar userHistory
 const { EVENT_TYPES } = userHistory; // Importar EVENT_TYPES
 
@@ -9,7 +10,8 @@ const DEFAULT_USER_ID = 'nacho';
 
 // Función para obtener userId de la petición o usar el valor por defecto
 const getUserIdSafe = (req) => {
-  return req.user?.id || req.session?.userId || req.headers['user-id'] || DEFAULT_USER_ID;
+  // Preferimos el ID que proporciona el middleware de identificación de usuario
+  return req.userId || req.user?.id || req.session?.userId || req.headers['user-id'] || DEFAULT_USER_ID;
 };
 
 /**
@@ -19,6 +21,8 @@ const getUserIdSafe = (req) => {
  */
 router.get('/profile', async (req, res) => {
   try {
+    // Obtener instancia de SpotifyAPI para este usuario específico
+    const spotifyApi = await getSpotifyForRequest(req);
     const data = await spotifyApi.getMe();
     res.json(data.body);
   } catch (error) {
@@ -34,6 +38,7 @@ router.get('/profile', async (req, res) => {
  */
 router.get('/playlists', async (req, res) => {
   try {
+    const spotifyApi = await getSpotifyForRequest(req);
     const data = await spotifyApi.getUserPlaylists();
     res.json(data.body);
   } catch (error) {
@@ -49,6 +54,7 @@ router.get('/playlists', async (req, res) => {
  */
 router.get('/now-playing', async (req, res) => {
   try {
+    const spotifyApi = await getSpotifyForRequest(req);
     const data = await spotifyApi.getMyCurrentPlayingTrack();
     res.json(data.body);
   } catch (error) {
@@ -67,6 +73,9 @@ router.post('/play', async (req, res) => {
   const userId = getUserIdSafe(req); // Obtener userId con fallback a 'nacho'
   
   try {
+    // Obtener instancia de SpotifyAPI para este usuario específico
+    const spotifyApi = await getSpotifyForRequest(req);
+    
     // Verificar dispositivos disponibles
     const devices = await spotifyApi.getMyDevices();
     const hasActiveDevice = devices.body.devices.some(device => device.is_active);
@@ -162,6 +171,9 @@ if (req.body.type === 'track' && req.body.uri) {
 router.put('/pause', async (req, res) => {
   const userId = getUserIdSafe(req); // Obtener userId con fallback a 'nacho'
   try {
+    // Obtener instancia de SpotifyAPI para este usuario específico
+    const spotifyApi = await getSpotifyForRequest(req);
+    
     // Verificar primero el estado actual de la reproducción
     const currentPlayback = await spotifyApi.getMyCurrentPlaybackState();
     
@@ -229,6 +241,9 @@ router.put('/pause', async (req, res) => {
 router.post('/next', async (req, res) => {
   const userId = getUserIdSafe(req); // Obtener userId con fallback a 'nacho'
   try {
+    // Obtener instancia de SpotifyAPI para este usuario específico
+    const spotifyApi = await getSpotifyForRequest(req);
+    
     // Verificar que haya reproducción activa
     const currentPlayback = await spotifyApi.getMyCurrentPlaybackState();
     
@@ -354,7 +369,12 @@ router.delete('/queue', async (req, res) => {
  * @access  Private
  */
 router.post('/previous', async (req, res) => {
+  const userId = getUserIdSafe(req);
+  
   try {
+    // Obtener instancia de SpotifyAPI para este usuario específico
+    const spotifyApi = await getSpotifyForRequest(req);
+    
     // Verificar que haya reproducción activa
     const currentPlayback = await spotifyApi.getMyCurrentPlaybackState();
     
@@ -957,6 +977,8 @@ router.post('/play-queue-item', async (req, res) => {
   const { index } = req.body;
   
   try {
+    // Obtener instancia de SpotifyAPI para este usuario específico
+    const spotifyApi = await getSpotifyForRequest(req);
     if (index === undefined || index < 0) {
       return res.status(400).json({ error: 'Se requiere un índice válido' });
     }

@@ -213,7 +213,8 @@
         
         // Initialize Socket.io connection
         function initializeSocket() {
-            socket = io('http://localhost:8080', {
+            // Usar URL relativa para la conexión Socket.io (se conectará al mismo host que sirve la página)
+            socket = io('/', {
                 auth: {
                     token: accessToken
                 }

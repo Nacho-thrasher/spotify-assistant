@@ -1,16 +1,9 @@
 /**
- * Servicio de integración con OpenAI para procesar mensajes del usuario
+ * Servicio de integración con modelos de IA para procesar mensajes del usuario
+ * Versión mejorada con soporte para múltiples modelos a través de OpenRouter
  */
-const OpenAI = require('openai');
 const userFeedback = require('./userFeedback');
-
-// Inicializar cliente de OpenAI si hay una clave API disponible
-let openai = null;
-if (process.env.OPENAI_API_KEY) {
-  openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
-  });
-}
+const modelProvider = require('./modelProvider');
 
 /**
  * Sistema de instrucciones base para el modelo - mejorado con contexto
@@ -141,17 +134,18 @@ const MAX_HISTORY = 5;
  * Guarda un comando en el histórico para uso futuro
  * @param {string} command - Comando a guardar
  */
-function saveToHistory(command) {
-  // Añadir al inicio para tener los más recientes primero
+const saveToHistory = (command) => {
+  // Añadir al principio para mantener los más recientes
   commandHistory.unshift(command);
-  // Mantener solo los últimos N comandos
+  
+  // Limitar tamaño del histórico
   if (commandHistory.length > MAX_HISTORY) {
     commandHistory.pop();
   }
-}
+};
 
 /**
- * Función para procesar un mensaje del usuario utilizando OpenAI
+ * Función para procesar un mensaje del usuario utilizando modelos de IA
  * @param {string} message - Mensaje del usuario
  * @param {Object} playbackContext - Contexto actual de reproducción (opcional)
  * @param {string} userId - ID del usuario (opcional)
@@ -161,97 +155,97 @@ async function processMessage(message, playbackContext = null, userId = 'anonymo
   // Guardar el comando en el histórico
   saveToHistory(message);
   
+  // Verificar si hay proveedores de IA disponibles
+  if (!modelProvider.isAvailable()) {
+    console.log('⚠️ OpenRouter no está configurado. Usando procesamiento simple.');
+    return processMessageSimple(message, userId);
+  }
+  
   try {
-    // Si OpenAI está disponible, usar el modelo
-    if (openai) {
-      // Preparar el contexto completo para el prompt
-      let context = {
-        currentTrack: null,
-        queue: [],
-        history: commandHistory.slice(1) // Excluir el comando actual
-      };
+    // Preparar contexto enriquecido para el prompt
+    let context = { history: commandHistory };
+    
+    // Añadir contexto de reproducción si está disponible
+    if (playbackContext) {
+      try {
+        context.currentTrack = playbackContext.currentlyPlaying || null;
+        context.queue = playbackContext.nextInQueue || [];
+      } catch (contextError) {
+        console.warn('⚠️ Error al procesar el contexto de reproducción:', contextError.message);
+        // Continuar con el contexto parcial
+      }
+    } else {
+      console.log('Contexto de reproducción no proporcionado. No se incluirá en el prompt.');
+    }
+    
+    try {
+      console.log('🤖 Procesando mensaje con IA usando contexto enriquecido');
       
-      // Manejar posibles errores al obtener el contexto de reproducción
-      if (playbackContext) {
-        try {
-          context.currentTrack = playbackContext.currentlyPlaying || null;
-          context.queue = playbackContext.nextInQueue || [];
-        } catch (error) {
-          console.warn('⚠️ Error al procesar el contexto de reproducción:', error.message);
-          // Continuar con el contexto vacío
-        }
+      // Generar el prompt con el contexto actual
+      const systemPrompt = getSystemPrompt(context);
+      
+      // Obtener respuesta del proveedor de modelos
+      const responseContent = await modelProvider.generateResponse(systemPrompt, message);
+      
+      // Log detallado de la respuesta
+      console.log('✨ RESPUESTA DEL MODELO:');
+      console.log('==================== INICIO RESPUESTA MODELO ====================');
+      console.log(responseContent);
+      console.log('==================== FIN RESPUESTA MODELO ====================');
+      
+      // Log adicional para análisis
+      try {
+        const parsedResponse = JSON.parse(responseContent);
+        console.log('🔍 ANÁLISIS DE RESPUESTA:');
+        console.log('   • Acción detectada:', parsedResponse.action);
+        console.log('   • Parámetros:', JSON.stringify(parsedResponse.parameters, null, 2));
+        console.log('   • Longitud del mensaje:', parsedResponse.message.length, 'caracteres');
+        console.log('   • Modelo usado:', modelProvider.getCurrentModel());
+      } catch (parseError) {
+        console.warn('⚠️ Error al analizar respuesta JSON:', parseError.message);
       }
       
       try {
-        console.log('🤖 Procesando mensaje con OpenAI usando contexto enriquecido');
+        // Intentar parsear la respuesta como JSON
+        const parsedResponse = JSON.parse(responseContent);
         
-        // Generar el prompt con el contexto actual
-        const systemPrompt = getSystemPrompt(context);
+        // Registrar la interacción para aprendizaje (asíncrono, no bloqueante)
+        userFeedback.logInteraction({
+          userId,
+          userMessage: message,
+          detectedAction: parsedResponse.action,
+          parameters: parsedResponse.parameters,
+          successful: true,
+          model: modelProvider.getCurrentModel()
+        }).catch(err => console.error('Error al registrar interacción:', err));
         
-        // Enviar mensaje a OpenAI
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o", // o "gpt-3.5-turbo" para un modelo más ligero y económico
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: message }
-          ],
-          response_format: { type: "json_object" }
-        });
-
-        // Extraer y procesar la respuesta
-        const responseContent = completion.choices[0].message.content;
-        
-        // Log detallado de la respuesta de OpenAI
-        console.log('✨ RESPUESTA DE OPENAI:');
-        console.log('==================== INICIO RESPUESTA OPENAI ====================');
-        console.log(responseContent);
-        console.log('==================== FIN RESPUESTA OPENAI ====================');
-        
-        // Log adicional para análisis
-        try {
-          const parsedResponse = JSON.parse(responseContent);
-          console.log('🔍 ANÁLISIS DE RESPUESTA:');
-          console.log('   • Acción detectada:', parsedResponse.action);
-          console.log('   • Parámetros:', JSON.stringify(parsedResponse.parameters, null, 2));
-          console.log('   • Longitud del mensaje:', parsedResponse.message.length, 'caracteres');
-        } catch (parseError) {
-          console.warn('⚠️ Error al analizar respuesta JSON de OpenAI:', parseError.message);
-        }
-        
-        try {
-          // Intentar parsear la respuesta como JSON
-          const parsedResponse = JSON.parse(responseContent);
-          
-          // Registrar la interacción para aprendizaje (asíncrono, no bloqueante)
-          userFeedback.logInteraction({
-            userId,
-            userMessage: message,
-            detectedAction: parsedResponse.action,
-            parameters: parsedResponse.parameters || {},
-            successful: true // Asumimos éxito inicial
-          }).catch(err => console.error('Error al registrar interacción:', err));
-          
-          return parsedResponse;
-        } catch (error) {
-          console.error('Error al parsear la respuesta JSON:', error);
-          throw new Error('No se pudo interpretar la respuesta de OpenAI como JSON válido');
-        }
-      } catch (error) {
-        console.error('Error procesando mensaje con OpenAI:', error);
-        // Fallback a procesamiento simple
-        console.log('♻️ Fallback: Usando procesamiento simple por error');
-        const result = await processMessageSimple(message, userId);
-        return result;
+        return parsedResponse;
+      } catch (parseError) {
+        console.error('Error al parsear respuesta del modelo:', parseError);
+        // Si hay error de parseo, usar el procesamiento simple como fallback
+        console.log('⚠️ Usando procesamiento simple como fallback debido a error de parseo');
+        return processMessageSimple(message, userId);
       }
-    } else {
-      // Fallback a procesamiento simple
-      console.log('⚠️ OpenAI no disponible, usando procesamiento simple');
-      const result = await processMessageSimple(message, userId);
-      return result;
+    } catch (modelError) {
+      // Si todos los proveedores fallan
+      console.error('🔴 Error con todos los modelos de IA:', modelError);
+      
+      // Registrar el error para análisis
+      userFeedback.logInteraction({
+        userId,
+        userMessage: message,
+        detectedAction: 'error',
+        parameters: { errorType: 'model_error', errorMessage: modelError.message },
+        successful: false
+      }).catch(err => console.error('Error al registrar interacción con error:', err));
+      
+      // Usar procesamiento simple como fallback
+      console.log('⚠️ Usando procesamiento simple como fallback debido a error en todos los modelos');
+      return processMessageSimple(message, userId);
     }
-  } catch (error) {
-    console.error('Error procesando mensaje:', error);
-    throw new Error('Error al procesar el mensaje');
+  } catch (generalError) {
+    console.error('Error general en processMessage:', generalError);
+    return processMessageSimple(message, userId);
   }
 }
 

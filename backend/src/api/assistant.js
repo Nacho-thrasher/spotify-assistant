@@ -458,6 +458,7 @@ router.post('/message', async (req, res) => {
         
       case 'recommendations':
         console.log('🎶 SPOTIFY: Generando recomendaciones musicales');
+        console.log('Parámetros recibidos:', parameters);
         try {
           // Obtener recomendaciones basadas en la canción actual o en parámetros
           let seedTracks = [];
@@ -466,44 +467,55 @@ router.post('/message', async (req, res) => {
           
           // Si hay una canción en reproducción, usarla como semilla
           if (playbackContext?.currentlyPlaying?.id) {
-            seedTracks.push(playbackContext.currentlyPlaying.id);
-            console.log('   • Usando canción actual como semilla:', playbackContext.currentlyPlaying.name);
+            // Asegurar que tenemos ID y no URI
+            const trackId = playbackContext.currentlyPlaying.id;
+            seedTracks.push(trackId);
+            console.log('   • Usando canción actual como semilla:', playbackContext.currentlyPlaying.name, `(ID: ${trackId})`);
           }
           // Si se proporcionó una canción específica como semilla
           else if (parameters?.trackId) {
-            seedTracks.push(parameters.trackId);
-            console.log('   • Usando canción específica como semilla:', parameters.trackId);
+            // Asegurar que estamos usando ID y no URI
+            const trackId = parameters.trackId.includes(':') ? parameters.trackId.split(':').pop() : parameters.trackId;
+            seedTracks.push(trackId);
+            console.log('   • Usando canción como semilla:', trackId);
           }
           // Si se proporcionó un artista como semilla
           else if (parameters?.artistId) {
-            seedArtists.push(parameters.artistId);
-            console.log('   • Usando artista como semilla:', parameters.artistId);
+            // Asegurar que estamos usando ID y no URI
+            const artistId = parameters.artistId.includes(':') ? parameters.artistId.split(':').pop() : parameters.artistId;
+            seedArtists.push(artistId);
+            console.log('   • Usando artista como semilla:', artistId);
           }
           // Si se proporcionó un género como semilla
           else if (parameters?.genre) {
-            seedGenres.push(parameters.genre);
-            console.log('   • Usando género como semilla:', parameters.genre);
+            seedGenres.push(parameters.genre.toLowerCase());
+            console.log('   • Usando género como semilla:', parameters.genre.toLowerCase());
           }
           // Si no hay semillas, intentar buscar por consulta
           else if (parameters?.query) {
-            // Buscar la canción o artista para usar como semilla
-            const searchResults = await spotifyApi.search(parameters.query, ['track', 'artist'], { limit: 1 });
-            
-            if (searchResults.body.tracks.items.length > 0) {
-              const track = searchResults.body.tracks.items[0];
-              seedTracks.push(track.id);
-              console.log('   • Usando canción de búsqueda como semilla:', track.name);
-            } else if (searchResults.body.artists.items.length > 0) {
-              const artist = searchResults.body.artists.items[0];
-              seedArtists.push(artist.id);
-              console.log('   • Usando artista de búsqueda como semilla:', artist.name);
-            } else {
-              // Si no hay resultados, usar un género popular
+            try {
+              // Buscar la canción o artista para usar como semilla
+              const searchResults = await spotifyApi.search(parameters.query, ['track', 'artist'], { limit: 1 });
+              
+              if (searchResults.body.tracks && searchResults.body.tracks.items.length > 0) {
+                const track = searchResults.body.tracks.items[0];
+                seedTracks.push(track.id); // Ya es un ID, no un URI
+                console.log('   • Usando canción de búsqueda como semilla:', track.name, `(ID: ${track.id})`);
+              } else if (searchResults.body.artists && searchResults.body.artists.items.length > 0) {
+                const artist = searchResults.body.artists.items[0];
+                seedArtists.push(artist.id); // Ya es un ID, no un URI
+                console.log('   • Usando artista de búsqueda como semilla:', artist.name, `(ID: ${artist.id})`);
+              } else {
+                seedGenres.push('pop');
+                console.log('   • Sin resultados, usando género pop como semilla predeterminada');
+              }
+            } catch (searchError) {
+              console.error('Error en búsqueda para semillas:', searchError);
               seedGenres.push('pop');
-              console.log('   • Sin resultados, usando género pop como semilla predeterminada');
+              console.log('   • Error en búsqueda, usando género pop como semilla predeterminada');
             }
           }
-          // Si no hay nada, usar la última canción reproducida o un género popular
+          // Si no hay nada, usar un género popular
           else {
             seedGenres.push('pop');
             console.log('   • Sin parámetros, usando género pop como semilla predeterminada');
@@ -526,21 +538,58 @@ router.post('/message', async (req, res) => {
           }
           
           // Asegurarse de que al menos un parámetro de semilla esté presente
-          if (Object.keys(recommendationParams).length === 0) {
-            // Si no hay semillas, usar géneros populares
-            recommendationParams.seed_genres = 'pop,rock';
-            console.log('   • Sin semillas válidas, usando géneros populares como semilla');
+          if (!recommendationParams.seed_tracks && !recommendationParams.seed_artists && !recommendationParams.seed_genres) {
+            // Si no hay semillas, usar géneros populares seguros
+            recommendationParams.seed_genres = 'pop';
+            console.log('   • Sin semillas válidas, usando pop como semilla predeterminada');
           }
           
-          // Añadir límite de resultados
+          // Añadir parámetros obligatorios
           recommendationParams.limit = 5;
+          recommendationParams.market = 'ES';
           
           console.log('Parámetros de recomendación:', recommendationParams);
           
           // Obtener recomendaciones de Spotify
-          const recommendations = await spotifyApi.getRecommendations(recommendationParams);
+          let recommendations;
+          try {
+            // Intento principal
+            recommendations = await spotifyApi.getRecommendations(recommendationParams);
+          } catch (recError) {
+            console.warn('⚠️ Error al obtener recomendaciones:', recError);
+            
+            // Primera estrategia de fallback: cambiar mercado
+            try {
+              console.log('🔄 Fallback 1: Intentando con mercado US');
+              const fallbackParams = {...recommendationParams, market: 'US'};
+              recommendations = await spotifyApi.getRecommendations(fallbackParams);
+            } catch (fallbackErr1) {
+              // Segunda estrategia: usar solo géneros populares
+              try {
+                console.log('🔄 Fallback 2: Intentando solo con géneros populares');
+                recommendations = await spotifyApi.getRecommendations({
+                  seed_genres: 'pop', 
+                  limit: 5, 
+                  market: 'US'
+                });
+              } catch (fallbackErr2) {
+                // Último intento: disco y rock que suelen tener amplio catálogo
+                try {
+                  console.log('🔄 Fallback 3: Último intento con géneros alternativos');
+                  recommendations = await spotifyApi.getRecommendations({
+                    seed_genres: 'rock,disco', 
+                    limit: 5, 
+                    market: 'US'
+                  });
+                } catch (fallbackErr3) {
+                  console.error('❌ Todos los intentos de recomendaciones fallaron');
+                  throw fallbackErr3;
+                }
+              }
+            }
+          }
           
-          if (recommendations.body.tracks.length > 0) {
+          if (recommendations && recommendations.body && recommendations.body.tracks && recommendations.body.tracks.length > 0) {
             console.log(`✅ SPOTIFY: Obtenidas ${recommendations.body.tracks.length} recomendaciones`);
             
             // Formatear recomendaciones para la respuesta
@@ -573,6 +622,12 @@ router.post('/message', async (req, res) => {
           };
         }
         break;
+        
+      case 'info':
+        // Alias de get_info
+        parameters.target = parameters.target || 'all';
+        console.log('🔍 SPOTIFY: Usando alias "info" -> "get_info"');
+        // Continuar con la misma lógica de get_info
         
       case 'get_info':
         console.log('🔍 SPOTIFY: Buscando información');

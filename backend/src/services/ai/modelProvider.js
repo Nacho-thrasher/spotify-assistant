@@ -43,6 +43,11 @@ const modelTiers = {
     'mistralai/mistral-7b-instruct'
   ],
   free: [
+    'microsoft/phi-4-reasoning-plus:free',
+    'nousresearch/deephermes-3-mistral-24b-preview:free',
+    'qwen/qwen3-8b:free',
+    'qwen/qwen3-14b:free',
+    // mantén los anteriores
     'nousresearch/nous-hermes-2-mixtral-8x7b-dpo',
     'openchat/openchat-7b',
     'undi95/toppy-m-7b',
@@ -116,6 +121,7 @@ async function generateResponse(prompt, userMessage) {
       // Generar respuesta
       const completion = await openRouter.chat.completions.create({
         model: model,
+        max_tokens: 800,  // Evitar que la respuesta se corte
         messages: [
           { role: "system", content: prompt },
           { role: "user", content: userMessage }

@@ -155,6 +155,8 @@ IMPERATIVO: Debes proporcionar SOLO un array JSON con EXACTAMENTE este formato y
   { "song": "Nombre de Canción 5", "artist": "Nombre de Artista 5" }
 ]
 
+ES EXTREMADAMENTE IMPORTANTE que uses el formato de array con corchetes [ ] y cada elemento como un objeto separado con llaves { }.
+NO uses un objeto plano con claves duplicadas como { "song": "X", "artist": "Y", "song": "Z", "artist": "W" }.
 NO AÑADAS TEXTO FUERA DEL JSON. SOLO EL ARRAY JSON Y NADA MÁS.
 NO escribas frases como "Aquí tienes" o "Estas son mis recomendaciones".
 NO escribas explicaciones antes o después del JSON.

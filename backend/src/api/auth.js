@@ -133,15 +133,37 @@ router.post('/refresh-token', async (req, res) => {
     spotifyApi.setRefreshToken(refresh_token);
     
     // Luego renovamos el token
-    const data = await spotifyApi.refreshAccessToken();
-    const { access_token, expires_in } = data.body;
+    const result = await spotifyManager.refreshAccessTokenForUser(userId);
     
-    // Guardar el nuevo access token para este usuario
-    await spotifyManager.setTokensForUser(userId, access_token, refresh_token, expires_in);
+    // Verificar si hay un error específico de invalid_grant
+    if (result && result.error === 'invalid_grant') {
+      return res.status(401).json({
+        error: 'invalid_grant',
+        message: result.message,
+        requiresReauth: true
+      });
+    }
+    
+    // Si el resultado es false, hubo un error genérico
+    if (result === false) {
+      return res.status(400).json({
+        error: 'Error al refrescar el token',
+        message: 'No se pudo renovar la sesión'
+      });
+    }
+    
+    // Obtener los tokens actualizados
+    const tokens = await spotifyManager.getTokensFromRedis(userId);
+    if (!tokens) {
+      return res.status(400).json({
+        error: 'Error al obtener tokens',
+        message: 'No se pudieron recuperar los tokens actualizados'
+      });
+    }
     
     res.json({
-      access_token,
-      expires_in
+      access_token: tokens.accessToken,
+      expires_in: Math.floor((tokens.expiresAt - Date.now()) / 1000) // Convertir a segundos
     });
   } catch (error) {
     console.error('Error al refrescar el token:', error);

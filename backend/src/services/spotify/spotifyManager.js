@@ -233,21 +233,32 @@ const refreshUserTokens = async (userId) => {
     instance.lastUsed = Date.now();
     
     // Intentar renovar token
-    const data = await spotifyApi.refreshAccessToken();
-    const { access_token, expires_in } = data.body;
-    
-    console.log(`Token renovado para usuario ${userId}, expira en ${expires_in} segundos`);
-    
-    // Actualizar tokens
-    spotifyApi.setAccessToken(access_token);
-    
-    // Guardar en Redis (manteniendo el mismo refresh token)
-    const tokens = await getTokensFromRedis(userId);
-    if (tokens && tokens.refreshToken) {
-      await saveTokensToRedis(userId, access_token, tokens.refreshToken, expires_in);
+    try {
+      const data = await spotifyApi.refreshAccessToken();
+      const { access_token, expires_in } = data.body;
+      
+      console.log(`Token renovado para usuario ${userId}, expira en ${expires_in} segundos`);
+      
+      // Actualizar tokens
+      spotifyApi.setAccessToken(access_token);
+      
+      // Guardar en Redis (manteniendo el mismo refresh token)
+      const tokens = await getTokensFromRedis(userId);
+      if (tokens && tokens.refreshToken) {
+        await saveTokensToRedis(userId, access_token, tokens.refreshToken, expires_in);
+      }
+      
+      return true;
+    } catch (refreshError) {
+      // Si el error es específicamente invalid_grant, limpiar los tokens
+      if (refreshError.message && refreshError.message.includes('invalid_grant')) {
+        console.error(`⚠️ Refresh token inválido para usuario ${userId}. Limpiando datos...`);
+        await clearUserInstance(userId);
+        // Devolver un código específico para manejar este caso en la UI
+        return { error: 'invalid_grant', message: 'La sesión ha expirado. Por favor, inicia sesión nuevamente.' };
+      }
+      throw refreshError; // Re-lanzar otros errores
     }
-    
-    return true;
   } catch (error) {
     console.error(`Error al renovar token para usuario ${userId}:`, error);
     return false;
@@ -307,6 +318,11 @@ const spotifyApiProxy = {
   // Para limpiar datos de usuario (logout)
   async clearUser(userId) {
     await clearUserInstance(userId);
+  },
+  
+  // Exponer función para obtener tokens desde Redis
+  async getTokensFromRedis(userId) {
+    return await getTokensFromRedis(userId);
   }
 };
 

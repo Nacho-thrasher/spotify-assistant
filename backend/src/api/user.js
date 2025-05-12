@@ -792,7 +792,27 @@ router.get('/queue', async (req, res) => {
       if (queueData && queueData.queue) {
         console.log(`👉 COLA REAL SPOTIFY: ${queueData.queue.length} elementos encontrados`);
         
-        // Mapear la información de la cola a nuestro formato, manteniendo TODAS las canciones y el orden original
+        // CORREGIDO: La respuesta de la API de Spotify incluye:
+        // - currently_playing: la canción actual que se está reproduciendo
+        // - queue: la cola de canciones DESPUÉS de la que se está reproduciendo
+        
+        // Comprobar si tenemos información de canción actual en la respuesta de la API
+        if (queueData.currently_playing) {
+          console.log(`💿 API Spotify dice que se está reproduciendo: ${queueData.currently_playing.name} - ${queueData.currently_playing.artists[0].name}`);
+          
+          // Actualizar currentlyPlaying si la respuesta de la API incluye esta información
+          currentlyPlaying = {
+            name: queueData.currently_playing.name,
+            artist: queueData.currently_playing.artists[0].name,
+            album: queueData.currently_playing.album.name,
+            image: queueData.currently_playing.album.images[0]?.url,
+            duration_ms: queueData.currently_playing.duration_ms,
+            uri: queueData.currently_playing.uri,
+            isPlaying: true // Si lo devuelve la API, asumimos que está reproduciendo
+          };
+        }
+        
+        // Mapear SOLO la cola futura (sin incluir la canción actual) - Este es el comportamiento correcto
         nextInQueue = queueData.queue.map(track => ({
           name: track.name,
           artist: track.artists[0].name,

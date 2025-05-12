@@ -460,6 +460,7 @@ router.post('/message', async (req, res) => {
       case 'recommendations':
         try {
           // Usar el nuevo módulo de recomendaciones
+          console.log('🔍 SPOTIFY: Recomendaciones solicitadas con userId:', userId);
           const result = await processRecommendations(spotifyApi, parameters, playbackContext, userId);
           
           if (result.success) {

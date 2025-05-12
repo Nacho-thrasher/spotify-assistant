@@ -121,30 +121,30 @@ function buildRecommendationContext(parameters, playbackContext) {
  * @returns {Promise<Array>} - Lista de recomendaciones
  */
 async function getRecommendationsFromAI(context) {
-  // Construir un prompt para OpenAI con instrucciones detalladas para formato
-  let prompt = `INSTRUCCIONES EXTREMADAMENTE IMPORTANTES (NO IGNORAR):
-
-Necesito EXACTAMENTE 5 recomendaciones musicales específicas con nombres de canciones y artistas. `;
-  
-  // Añadir contexto según lo que tengamos
-  if (context.references.length > 0 && context.references[0].type === 'current_track') {
-    const track = context.references[0];
-    prompt += `Basadas en la canción "${track.name}" de ${track.artist}. `;
-  }
-  
-  if (context.query) {
-    prompt += `Relacionadas con: "${context.query}". `;
-  }
-  
-  if (context.genre) {
-    prompt += `Del género: ${context.genre}. `;
-  }
-  
-  if (context.basedOn) {
-    prompt += `Similares a: ${context.basedOn}. `;
-  }
-  
-  prompt += `
+  try {
+    // Construir el prompt para la IA
+    let prompt = `Estoy buscando recomendaciones musicales. `;
+    
+    if (context.references && context.references.length > 0) {
+      const currentTrack = context.references.find(ref => ref.type === 'current_track');
+      if (currentTrack) {
+        prompt += `Actualmente estoy escuchando "${currentTrack.name}" de ${currentTrack.artist}. `;
+      }
+    }
+    
+    if (context.query) {
+      prompt += `Busco música relacionada con: ${context.query}. `;
+    }
+    
+    if (context.genre) {
+      prompt += `Del género: ${context.genre}. `;
+    }
+    
+    if (context.basedOn) {
+      prompt += `Similares a: ${context.basedOn}. `;
+    }
+    
+    prompt += `
 
 IMPERATIVO: Debes proporcionar SOLO un array JSON con EXACTAMENTE este formato y NADA más:
 [
@@ -159,13 +159,12 @@ NO AÑADAS TEXTO FUERA DEL JSON. SOLO EL ARRAY JSON Y NADA MÁS.
 NO escribas frases como "Aquí tienes" o "Estas son mis recomendaciones".
 NO escribas explicaciones antes o después del JSON.
 Tu respuesta completa debe ser SOLO el array JSON, sin nada más.`;
-  
-  try {
+    
     // Llamar al modelProvider para obtener recomendaciones
     console.log('🧠 Generando recomendaciones con modelo de IA...');
     const response = await modelProvider.generateResponse('', prompt);
     
-    // Parsear la respuesta
+    // Verificar que hay respuesta
     if (!response) {
       throw new Error('No se recibió respuesta de la IA');
     }
@@ -186,73 +185,77 @@ Tu respuesta completa debe ser SOLO el array JSON, sin nada más.`;
     console.log('Respuesta limpiada para JSON:', cleanResponse);
     
     try {
+      // Primero intentamos parsear como JSON
       const jsonResponse = JSON.parse(cleanResponse);
       
       // La respuesta puede venir en diferentes formatos, intentamos manejarlos todos
       if (Array.isArray(jsonResponse)) {
+        // Caso 1: Array directo de recomendaciones [{ song, artist }, ...]
+        console.log('   • Formato detectado: Array de objetos');
         return jsonResponse;
-      } else if (jsonResponse.recommendations && Array.isArray(jsonResponse.recommendations)) {
+      } 
+      else if (jsonResponse.recommendations && Array.isArray(jsonResponse.recommendations)) {
+        // Caso 2: Objeto con clave 'recommendations' que contiene el array
+        console.log('   • Formato detectado: Objeto con clave "recommendations"');
         return jsonResponse.recommendations;
-      } else if (jsonResponse.songs && Array.isArray(jsonResponse.songs)) {
+      } 
+      else if (jsonResponse.songs && Array.isArray(jsonResponse.songs)) {
+        // Caso 3: Objeto con clave 'songs' que contiene el array
+        console.log('   • Formato detectado: Objeto con clave "songs"');
         return jsonResponse.songs;
-      } else {
-        // Construir un array a partir de propiedades numeradas
-        const songs = [];
-        for (let i = 1; i <= 5; i++) {
-          if (jsonResponse[`song${i}`] && jsonResponse[`artist${i}`]) {
-            songs.push({
-              song: jsonResponse[`song${i}`],
-              artist: jsonResponse[`artist${i}`]
-            });
-          }
-        }
+      } 
+      else if (jsonResponse.tracks && Array.isArray(jsonResponse.tracks)) {
+        // Caso 4: Objeto con clave 'tracks' que contiene el array
+        console.log('   • Formato detectado: Objeto con clave "tracks"');
+        return jsonResponse.tracks;
+      }
+      else if (jsonResponse.song && jsonResponse.artist) {
+        // Caso 5: Un único objeto con song y artist (en lugar de un array)
+        console.log('   • Formato detectado: Objeto único con song/artist');
+        return [jsonResponse]; // Convertirlo en array para mantener consistencia
+      }
+      else if (typeof jsonResponse === 'object' && Object.keys(jsonResponse).length > 0) {
+        // Caso 6: Un objeto con múltiples pares clave-valor que podrían ser canciones
+        // Por ejemplo: { "1": { "song": "X", "artist": "Y" }, "2": { ... } }
+        const possibleRecommendations = [];
         
-        if (songs.length > 0) {
-          return songs;
-        }
-        
-        // Buscar cualquier estructura que tenga song/artist o name/artist
-        const recommendations = [];
         for (const key in jsonResponse) {
           const item = jsonResponse[key];
-          if (typeof item === 'object' && (item.song || item.name) && item.artist) {
-            recommendations.push({
-              song: item.song || item.name,
-              artist: item.artist
-            });
+          if (item && typeof item === 'object' && item.song && item.artist) {
+            possibleRecommendations.push(item);
           }
         }
         
-        if (recommendations.length > 0) {
-          return recommendations;
+        if (possibleRecommendations.length > 0) {
+          console.log('   • Formato detectado: Objeto con múltiples recomendaciones anidadas');
+          return possibleRecommendations;
         }
-        
-        throw new Error('Formato de respuesta de IA no reconocido');
       }
+      
+      // Si llegamos aquí, no pudimos reconocer el formato de la respuesta JSON
+      console.error('Formato de respuesta de IA no reconocido:', jsonResponse);
+      throw new Error('Formato de respuesta de IA no reconocido');
+      
     } catch (parseError) {
+      // Si falla el parseo JSON, intentamos extraer con regex
       console.error('Error al parsear respuesta de IA:', parseError);
       
       // Intentar extraer recomendaciones usando regex si falló el JSON
       const recommendations = [];
-      // Mejorar regex para capturar más patrones de recomendaciones
-      // Buscar diferentes formatos como:
-      // - "1. Canción - Artista"
-      // - "- Canción por Artista"
-      // - "Canción by Artista"
-      // - "Canción de Artista"
+      
+      // Patrones de regex para extraer canciones/artistas del texto plano
       const regexPatterns = [
         // Patrón con numeración o guiones
         /(?:\d+\.\s+|\-\s+)?["']?([^"'\-\n]+)["']?\s+(?:by|por|de|[-–])\s+([^,\n.;:"']+)/gi,
         // Patrón artista - canción (invertido)
         /([^,\n.;:]+)\s+[-–]\s+["']?([^"'\n]+)["']?/gi,
-        // Patrón con "from"
-        /["']?([^"'\n]+)["']?\s+from\s+([^,\n.;:"']+)/gi,
         // Buscar cualquier mención de canción y artista
         /"([^"]+)"\s+(?:by|de|por)\s+([^,\.\n]+)/gi
       ];
       
       const responseText = response.toString();
-      // Intentar cada patrón
+      
+      // Intentar cada patrón de regex
       for (const regex of regexPatterns) {
         let match;
         while ((match = regex.exec(responseText)) !== null && recommendations.length < 5) {
@@ -272,12 +275,15 @@ Tu respuesta completa debe ser SOLO el array JSON, sin nada más.`;
       }
       
       if (recommendations.length > 0) {
+        console.log('   • Formato detectado: Texto plano con patrones de canción/artista');
         return recommendations;
       }
       
+      // Si no pudimos extraer nada con regex tampoco
       throw new Error('No se pudieron extraer recomendaciones del texto de la IA');
     }
   } catch (error) {
+    // Captura cualquier error en el proceso completo
     console.error('Error al obtener recomendaciones de IA:', error);
     throw error;
   }

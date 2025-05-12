@@ -16,6 +16,7 @@ const userRoutes = require('./api/user');
 const assistantRoutes = require('./api/assistant');
 const historyRoutes = require('./api/history');
 const cacheRoutes = require('./api/cache'); // Nuevo router para pruebas de cache
+const diagnosticRoutes = require('./api/diagnostic'); // Nuevo router para diagnóstico de API
 
 const app = express();
 
@@ -80,6 +81,7 @@ app.use('/api/user', userRoutes);
 app.use('/api/assistant', assistantRoutes);
 app.use('/api/history', historyRoutes);
 app.use('/api/cache', cacheRoutes); // Nuevas rutas para pruebas de Redis
+app.use('/api/diagnostic', diagnosticRoutes); // Nuevas rutas para diagnóstico de API
 
 // Middleware para rutas no encontradas
 app.use((req, res) => {

@@ -62,7 +62,11 @@ router.get('/callback', async (req, res) => {
     // 2. La URL guardada en la sesión desde el endpoint /login
     // 3. La variable de entorno FRONTEND_URL
     // 4. El valor predeterminado (http://localhost:3000)
-    let frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    // URL hardcodeada para producción (la nueva URL del frontend)
+    const isProduction = process.env.NODE_ENV === 'production';
+    let frontendUrl = isProduction 
+      ? 'https://spotify-assistant-front.vercel.app' 
+      : (process.env.FRONTEND_URL || 'http://localhost:3000');
     
     // 1. Prioridad: Parámetro redirect_to en la URL
     if (redirect_to) {

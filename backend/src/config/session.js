@@ -14,17 +14,21 @@ const { redisClient } = require('./redis');
  */
 const configureSession = (app) => {
   try {
-    // Configuración base de las sesiones
+    // Configuración base de las sesiones optimizada para entornos cloud
     const sessionConfig = {
       secret: process.env.SESSION_SECRET || process.env.JWT_SECRET || 'spotify_assistant_secret_key',
-      resave: false,
-      saveUninitialized: false,
+      resave: true, // Cambiado a true para garantizar persistencia en entornos como Railway
+      saveUninitialized: true, // Guardar todas las sesiones para mayor consistencia
       name: 'spotify.sid',
       cookie: {
         secure: process.env.NODE_ENV === 'production',
         httpOnly: true,
-        maxAge: 1000 * 60 * 60 * 24 * 7 // 7 días en milisegundos
-      }
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // Permitir cross-site en producción
+        maxAge: 1000 * 60 * 60 * 24 * 30, // Extendido a 30 días para mayor persistencia
+        path: '/' // Asegurar que la cookie esté disponible en toda la aplicación
+      },
+      // Usar proxy para que las cookies seguras funcionen detrás de proxies como Railway
+      proxy: process.env.NODE_ENV === 'production'
     };
     
     // Verificar el estado de Redis directo por su status y ping

@@ -21,8 +21,31 @@ const app = express();
 
 // Middlewares
 app.use(cors({
-  origin: [process.env.FRONTEND_URL, 'http://localhost:3000'], // Permitir solicitudes del frontend
-  credentials: true // IMPORTANTE: Permitir cookies en solicitudes CORS
+  origin: function(origin, callback) {
+    // Permitir solicitudes sin origin (como curl/Postman) en desarrollo
+    if (!origin && process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    
+    // Lista de dominios permitidos
+    const allowedOrigins = [
+      process.env.FRONTEND_URL,
+      'http://localhost:3000',
+      'https://spotify-assistant-react.up.railway.app',
+      'https://spotify-assistant-front.vercel.app'
+    ];
+    
+    // Verificar si el origin está permitido
+    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+      callback(null, true)
+    } else {
+      console.warn(`CORS bloqueó solicitud desde: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true, // IMPORTANTE: Permitir cookies en solicitudes CORS
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'user-id']
 }));
 app.use(helmet({
   contentSecurityPolicy: false  // Deshabilitar para desarrollo

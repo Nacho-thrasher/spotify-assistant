@@ -13,27 +13,44 @@ const DEFAULT_USER_ID = 'nacho';
  * @returns {string} - Un ID de usuario único
  */
 const generateUniqueUserId = (req) => {
-  // ENFOQUE SIMPLIFICADO: Usar SOLO la IP, sin ningún otro factor
-  // Esto garantiza que sea 100% consistente para un mismo cliente
+  // Usamos una combinación más robusta de factores para generar ID
+  // Especialmente importante en entornos como Railway donde las IPs pueden cambiar
   
-  // Primero limpiamos la IP para hacerla más consistente
-  let ip = req.ip || req.connection.remoteAddress || 'unknown';
+  // 1. Recolectar factores de identidad de múltiples fuentes
+  const factors = [];
   
-  // Si es IPv6 local, convertir a formato simple
-  if (ip === '::1' || ip === '::ffff:127.0.0.1') {
-    ip = '127.0.0.1';
+  // Factor 1: IP del cliente (limpiada y normalizada)
+  let ip = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'] || 'unknown';
+  
+  // Normalizar IPv6 a IPv4 cuando sea posible
+  if (ip === '::1' || ip.includes('::ffff:')) {
+    // Convertir ::ffff:127.0.0.1 a 127.0.0.1
+    ip = ip.replace(/^.*:/, '');
   }
   
-  // Si contiene múltiples IPs, usar solo la primera
+  // Si hay múltiples IPs (proxies), usar la más cercana al cliente original
   if (ip.includes(',')) {
     ip = ip.split(',')[0].trim();
   }
   
+  factors.push(ip);
+  
+  // Factor 2: User-Agent si está disponible
+  const userAgent = req.headers['user-agent'] || 'unknown-agent';
+  factors.push(userAgent);
+  
+  // Factor 3: Cualquier header único que pueda ayudar con la identificación
+  const accept = req.headers['accept'] || '';
+  const language = req.headers['accept-language'] || '';
+  factors.push(accept.substring(0, 20) + language.substring(0, 10));
+  
   console.log(`Generando ID basado en IP: ${ip}`);
   
+  // Combinar todos los factores y generar un hash
+  const combinedFactors = factors.join('||');
   const simpleId = crypto
     .createHash('md5')
-    .update(ip)
+    .update(combinedFactors)
     .digest('hex')
     .substring(0, 12);
     
@@ -89,12 +106,13 @@ const ensureUserId = (req, res, next) => {
     }
   }
   
-  // 2. Configuración común para todas las cookies
+  // 2. Configuración común para todas las cookies - optimizada para entornos cloud
+  // IMPORTANTE: Usar Domain-less cookies para funcionar con cualquier dominio
   const COOKIE_OPTIONS = {
     maxAge: 1000 * 60 * 60 * 24 * 30, // 30 días
     httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' para permitir cross-site en producción
+    secure: process.env.NODE_ENV === 'production', // Requerido cuando sameSite es 'none'
     path: '/',
   };
   

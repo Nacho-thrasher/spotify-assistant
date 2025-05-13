@@ -464,31 +464,93 @@ router.post('/message', async (req, res) => {
         
       case 'recommendations':
         try {
-          // Usar el nuevo módulo de recomendaciones
           console.log('🔍 SPOTIFY: Recomendaciones solicitadas con userId:', userId);
-          const result = await processRecommendations(spotifyApi, parameters, playbackContext, userId);
           
-          if (result.success) {
-            // Incluir recomendaciones en la respuesta
-            response.recommendations = result.recommendations;
+          // Comprobar si se han detectado canciones específicas en los parámetros
+          if (parameters.songs && Array.isArray(parameters.songs) && parameters.songs.length > 0) {
+            console.log('   • Encontradas recomendaciones específicas del modelo de IA:', parameters.songs.length);
             
-            // Incluir las sugerencias originales de la IA para mostrar el icono en el frontend
-            if (result.aiSuggestions) {
-              console.log('💡 Incluyendo sugerencias originales de IA en la respuesta');
-              response.aiSuggestions = result.aiSuggestions;
+            // Usar directamente las canciones que ya ha detectado nuestro procesador de arrays
+            const songs = parameters.songs;
+            
+            // Buscar las canciones en Spotify
+            const { findTracksInSpotify } = require('./ai_recommendations');
+            const tracks = await findTracksInSpotify(spotifyApi, songs);
+            
+            if (tracks.length > 0) {
+              // Mapear los tracks para el formato de respuesta
+              const recommendedTracks = tracks.map(track => ({
+                name: track.name,
+                artist: track.artists[0].name,
+                album: track.album.name,
+                image: track.album.images[0]?.url,
+                uri: track.uri,
+                id: track.id
+              }));
+              
+              // Incluir recomendaciones en la respuesta
+              response.recommendations = recommendedTracks;
+              response.aiSuggestions = songs;
+              
+              // Actualizar mensaje con las recomendaciones
+              let recsMessage = 'Te recomiendo estas canciones: ';
+              recsMessage += recommendedTracks.map((t, i) => `${i+1}. "${t.name}" de ${t.artist}`).join(', ');
+              
+              response.message = recsMessage;
+              console.log('   • Recomendaciones procesadas exitosamente:', recommendedTracks.length);
+              
+            } else {
+              // Si no se encontraron canciones, usar el fallback normal
+              console.log('   • No se encontraron tracks en Spotify, usando fallback');
+              const result = await processRecommendations(spotifyApi, parameters, playbackContext, userId);
+              
+              if (result.success) {
+                // Incluir recomendaciones en la respuesta
+                response.recommendations = result.recommendations;
+                
+                // Incluir las sugerencias originales de la IA para mostrar el icono en el frontend
+                if (result.aiSuggestions) {
+                  response.aiSuggestions = result.aiSuggestions;
+                }
+                
+                // Actualizar mensaje con las recomendaciones
+                let recsMessage = 'Te recomiendo estas canciones: ';
+                recsMessage += result.recommendations.map((t, i) => `${i+1}. "${t.name}" de ${t.artist}`).join(', ');
+                
+                response.message = recsMessage;
+              } else {
+                // Si falló, mostrar error
+                response = {
+                  action: 'error',
+                  message: result.error || 'Lo siento, no pude encontrar recomendaciones en este momento. Inténtalo de nuevo más tarde.'
+                };
+              }
             }
-            
-            // Actualizar mensaje con las recomendaciones
-            let recsMessage = 'Te recomiendo estas canciones: ';
-            recsMessage += result.recommendations.map((t, i) => `${i+1}. "${t.name}" de ${t.artist}`).join(', ');
-            
-            response.message = recsMessage;
           } else {
-            // Si falló, mostrar error
-            response = {
-              action: 'error',
-              message: result.error || 'Lo siento, no pude encontrar recomendaciones en este momento. Inténtalo de nuevo más tarde.'
-            };
+            // Caso tradicional: usar el módulo de recomendaciones
+            const result = await processRecommendations(spotifyApi, parameters, playbackContext, userId);
+            
+            if (result.success) {
+              // Incluir recomendaciones en la respuesta
+              response.recommendations = result.recommendations;
+              
+              // Incluir las sugerencias originales de la IA para mostrar el icono en el frontend
+              if (result.aiSuggestions) {
+                response.aiSuggestions = result.aiSuggestions;
+              }
+              
+              // Actualizar mensaje con las recomendaciones
+              let recsMessage = 'Te recomiendo estas canciones: ';
+              recsMessage += result.recommendations.map((t, i) => `${i+1}. "${t.name}" de ${t.artist}`).join(', ');
+              
+              response.message = recsMessage;
+            } else {
+              // Si falló, mostrar error
+              response = {
+                action: 'error',
+                message: result.error || 'Lo siento, no pude encontrar recomendaciones en este momento. Inténtalo de nuevo más tarde.'
+              };
+            }
           }
         } catch (error) {
           console.error('⚠️ ERROR: Fallo al obtener recomendaciones:', error.message || error);

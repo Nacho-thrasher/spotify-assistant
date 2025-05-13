@@ -74,16 +74,6 @@ ${contextMessage}
 - Sé proactivo ofreciendo información relevante sobre artistas o canciones cuando corresponda
 - Si detectas que el usuario está corrigiendo una acción anterior, aprende de esa corrección
 
-### Formato para recomendaciones
-Cuando la acción sea "recommendations", es IMPERATIVO que sigas estas instrucciones:
-- Debes proporcionar un array de objetos JSON con recomendaciones
-- Cada objeto debe contener "song" y "artist"
-- SIEMPRE USA CORCHETES ([]) para el array y LLAVES ({}) para cada elemento
-- NUNCA uses un objeto plano con claves repetidas como { "song": "X", "artist": "Y", "song": "Z", ... }
-- SIEMPRE usa este formato: [
-  { "song": "Nombre Canción 1", "artist": "Artista 1" },
-  { "song": "Nombre Canción 2", "artist": "Artista 2" }
-]
 
 ## Instrucciones Generales
 1. Responde de forma concisa, conversacional y centrada en música
@@ -229,6 +219,9 @@ async function processMessage(message, playbackContext = null, userId = 'anonymo
         cleanResponse = cleanResponse.replace(/\s+at\s+[\w\.]+\s?\([^)]+\)/g, "");
         cleanResponse = cleanResponse.replace(/\s+at\s+async\s+[^\n]+/g, "");
         
+        // Limpiar caracteres de control que pueden romper el JSON
+        cleanResponse = cleanResponse.replace(/[\x00-\x1F\x7F-\x9F]/g, "");
+        
         // Intentar primero extraer arrays JSON si estamos buscando recomendaciones
         let isRecommendationRequest = message.toLowerCase().includes('recomend') || 
                                       message.toLowerCase().includes('similar') || 
@@ -259,7 +252,14 @@ async function processMessage(message, playbackContext = null, userId = 'anonymo
               // Construir una respuesta en el formato esperado con el array detectado
               const actionResponse = {
                 action: 'recommendations',
-                parameters: { songs: recommendations },
+                parameters: { 
+                  songs: recommendations,
+                  basedOn: message.toLowerCase().includes('tornado') ? 'Tornado of Souls' : 
+                          message.toLowerCase().includes('cemetery') ? 'Cemetery Gates' : 
+                          message.toLowerCase().includes('pantera') ? 'Pantera' : 
+                          message.toLowerCase().includes('megadeth') ? 'Megadeth' : 
+                          'detected_recommendations'
+                },
                 message: 'Aquí tienes algunas recomendaciones similares a lo que pediste.'
               };
               

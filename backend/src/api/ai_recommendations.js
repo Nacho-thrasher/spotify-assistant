@@ -180,17 +180,31 @@ Tu respuesta completa debe ser SOLO el array JSON, sin nada más.`;
     // Limpiar la respuesta de caracteres no deseados y texto extra
     let cleanResponse = response.trim();
     
-    // Intentar extraer solo el JSON si hay texto adicional
+    // Eliminar cualquier stacktrace o logs que puedan estar contaminando la respuesta
+    cleanResponse = cleanResponse.replace(/\s+at\s+[\w\.]+\s?\([^)]+\)/g, "");
+    cleanResponse = cleanResponse.replace(/\s+at\s+async\s+[^\n]+/g, "");
+    
+    // Intentar extraer solo el JSON si hay texto adicional (buscando array)
     const jsonStartIndex = cleanResponse.indexOf('[');
     const jsonEndIndex = cleanResponse.lastIndexOf(']') + 1;
     
     if (jsonStartIndex !== -1 && jsonEndIndex !== -1) {
       console.log('Encontrado posible JSON entre los índices:', jsonStartIndex, jsonEndIndex);
       cleanResponse = cleanResponse.substring(jsonStartIndex, jsonEndIndex);
+      
+      // Limpiamos cualquier texto que pudiera estar entre elementos del array
+      cleanResponse = cleanResponse.replace(/\}\s+[^\{\}\[\]"]+\s+\{/g, "},{");
     }
     
-    console.log('Respuesta recibida original:', response);
-    console.log('Respuesta limpiada para JSON:', cleanResponse);
+    // Log de depuración (limitado para evitar logs demasiado grandes)
+    const maxLogLength = 1000;
+    const originalResponseLog = response.length > maxLogLength ? 
+        response.substring(0, maxLogLength) + "... [truncado]" : response;
+    const cleanedResponseLog = cleanResponse.length > maxLogLength ? 
+        cleanResponse.substring(0, maxLogLength) + "... [truncado]" : cleanResponse;
+        
+    console.log('Respuesta recibida original:', originalResponseLog);
+    console.log('Respuesta limpiada para JSON:', cleanedResponseLog);
     
     try {
       // Primero intentamos parsear como JSON

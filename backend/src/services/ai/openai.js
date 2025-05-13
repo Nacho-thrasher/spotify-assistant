@@ -229,7 +229,53 @@ async function processMessage(message, playbackContext = null, userId = 'anonymo
         cleanResponse = cleanResponse.replace(/\s+at\s+[\w\.]+\s?\([^)]+\)/g, "");
         cleanResponse = cleanResponse.replace(/\s+at\s+async\s+[^\n]+/g, "");
         
-        // Intentar encontrar el objeto JSON dentro de texto potencialmente contaminado
+        // Intentar primero extraer arrays JSON si estamos buscando recomendaciones
+        let isRecommendationRequest = message.toLowerCase().includes('recomend') || 
+                                      message.toLowerCase().includes('similar') || 
+                                      message.toLowerCase().includes('más como');
+        
+        if (isRecommendationRequest) {
+          // Buscar arrays JSON dentro del texto (buscar recomendaciones)
+          const arrayStartIndex = cleanResponse.indexOf('[');
+          const arrayEndIndex = cleanResponse.lastIndexOf(']') + 1;
+          
+          if (arrayStartIndex !== -1 && arrayEndIndex !== -1 && arrayEndIndex > arrayStartIndex) {
+            console.log('Detectado posible array JSON (recomendaciones) entre los índices:', arrayStartIndex, arrayEndIndex);
+            let jsonCandidate = cleanResponse.substring(arrayStartIndex, arrayEndIndex);
+            
+            // Limpieza adicional si hay texto entre elementos del array
+            jsonCandidate = jsonCandidate.replace(/\}\s+[^\{\}\[\],:"]+\s+\{/g, "},{");
+            
+            try {
+              // Intentar parsear el array JSON como recomendaciones
+              const recommendations = JSON.parse(jsonCandidate);
+              console.log('✨ Éxito al parsear array JSON de recomendaciones');
+              
+              // Construir una respuesta en el formato esperado con el array detectado
+              const actionResponse = {
+                action: 'recommendations',
+                parameters: { songs: recommendations },
+                message: 'Aquí tienes algunas recomendaciones similares a lo que pediste.'
+              };
+              
+              // Registrar la interacción
+              userFeedback.logInteraction({
+                userId,
+                userMessage: message,
+                detectedAction: 'recommendations',
+                parameters: { songs: recommendations },
+                successful: true,
+                model: modelProvider.getCurrentModel()
+              }).catch(err => console.error('Error al registrar interacción:', err));
+              
+              return actionResponse;
+            } catch (arrayParseError) {
+              console.warn('Fallo al parsear array de recomendaciones:', arrayParseError.message);
+            }
+          }
+        }
+        
+        // Si no se detectó un array de recomendaciones, buscar un objeto JSON
         const jsonStartIndex = cleanResponse.indexOf('{');
         const jsonEndIndex = cleanResponse.lastIndexOf('}') + 1;
         

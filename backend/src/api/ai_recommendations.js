@@ -240,6 +240,46 @@ Tu respuesta completa debe ser SOLO el array JSON, sin nada más.`;
         }
       }
       
+      // Caso especial: respuesta con claves duplicadas
+      // Si recibimos algo como { "song": "X", "artist": "Y", "song": "Z", "artist": "W" }
+      // El parseo inicial solo guarda los últimos valores, pero intentamos rescatar más canciones
+      const originalResponseStr = response.toString();
+      
+      // Verificamos si hay múltiples pares song/artist en el texto usando regex
+      const songRegex = /"song"\s*:\s*"([^"]+)"/g;
+      const artistRegex = /"artist"\s*:\s*"([^"]+)"/g;
+      
+      // Extraer todas las canciones
+      const songs = [];
+      let songMatch;
+      while ((songMatch = songRegex.exec(originalResponseStr)) !== null) {
+        if (songMatch[1]) songs.push(songMatch[1]);
+      }
+      
+      // Extraer todos los artistas
+      const artists = [];
+      let artistMatch;
+      while ((artistMatch = artistRegex.exec(originalResponseStr)) !== null) {
+        if (artistMatch[1]) artists.push(artistMatch[1]);
+      }
+      
+      // Si ambos arrays tienen la misma longitud, podemos asumir que corresponden entre sí
+      if (songs.length > 0 && songs.length === artists.length) {
+        console.log('   • Formato detectado: Objeto con claves duplicadas');
+        console.log(`   • Encontrados ${songs.length} pares song/artist`);
+        
+        // Crear array de recomendaciones
+        const rescuedRecommendations = [];
+        for (let i = 0; i < songs.length; i++) {
+          rescuedRecommendations.push({
+            song: songs[i],
+            artist: artists[i]
+          });
+        }
+        
+        return rescuedRecommendations;
+      }
+      
       // Si llegamos aquí, no pudimos reconocer el formato de la respuesta JSON
       console.error('Formato de respuesta de IA no reconocido:', jsonResponse);
       throw new Error('Formato de respuesta de IA no reconocido');

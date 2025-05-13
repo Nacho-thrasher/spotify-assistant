@@ -242,9 +242,14 @@ async function processMessage(message, playbackContext = null, userId = 'anonymo
           if (arrayStartIndex !== -1 && arrayEndIndex !== -1 && arrayEndIndex > arrayStartIndex) {
             console.log('Detectado posible array JSON (recomendaciones) entre los índices:', arrayStartIndex, arrayEndIndex);
             let jsonCandidate = cleanResponse.substring(arrayStartIndex, arrayEndIndex);
+            console.log('Candidato JSON (array) extraido:', jsonCandidate.substring(0, Math.min(jsonCandidate.length, 100)) + (jsonCandidate.length > 100 ? '...' : ''));
             
             // Limpieza adicional si hay texto entre elementos del array
             jsonCandidate = jsonCandidate.replace(/\}\s+[^\{\}\[\],:"]+\s+\{/g, "},{");
+            
+            // Eliminar espacios en blanco adicionales dentro del array
+            jsonCandidate = jsonCandidate.replace(/\[\s+\{/g, "[{").replace(/\}\s+\]/g, "}]");
+            console.log('Candidato JSON después de limpieza:', jsonCandidate.substring(0, Math.min(jsonCandidate.length, 100)) + (jsonCandidate.length > 100 ? '...' : ''));
             
             try {
               // Intentar parsear el array JSON como recomendaciones

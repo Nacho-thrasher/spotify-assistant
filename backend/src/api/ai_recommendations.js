@@ -146,7 +146,9 @@ async function getRecommendationsFromAI(context) {
     
     prompt += `
 
-IMPERATIVO: Debes proporcionar SOLO un array JSON con EXACTAMENTE este formato y NADA más:
+INSTRUCCIONES ESTRICTAS FORMATO DE RESPUESTA OBLIGATORIO
+
+Debes responder EXCLUSIVAMENTE con un array JSON válido, siguiendo ESTRÍCTAMENTE este formato y sin ningún texto adicional antes o después:
 [
   { "song": "Nombre de Canción 1", "artist": "Nombre de Artista 1" },
   { "song": "Nombre de Canción 2", "artist": "Nombre de Artista 2" },
@@ -155,11 +157,15 @@ IMPERATIVO: Debes proporcionar SOLO un array JSON con EXACTAMENTE este formato y
   { "song": "Nombre de Canción 5", "artist": "Nombre de Artista 5" }
 ]
 
-ES EXTREMADAMENTE IMPORTANTE que uses el formato de array con corchetes [ ] y cada elemento como un objeto separado con llaves { }.
-NO uses un objeto plano con claves duplicadas como { "song": "X", "artist": "Y", "song": "Z", "artist": "W" }.
+REGLAS CRÍTICAS:
+Formato válido JSON. Usa corchetes [] para el array, y dentro, objetos separados con llaves {}. Cada objeto debe tener exactamente dos claves: "song" y "artist"
+ES EXTREMADAMENTE IMPORTANTE que uses el formato de array con corchetes [] y cada elemento como un objeto separado con llaves { }.
+No repitas claves dentro de un mismo objeto. Por ejemplo, esto es inválido: { "song": "X", "artist": "Y", "song": "Z", "artist": "W" }.
 NO AÑADAS TEXTO FUERA DEL JSON. SOLO EL ARRAY JSON Y NADA MÁS.
+NO AÑADAS NINGÚN TEXTO. Ni antes ni después del JSON. Ni comentarios, ni explicaciones, ni frases como “Aquí tienes” o “Te recomiendo”.
 NO escribas frases como "Aquí tienes" o "Estas son mis recomendaciones".
 NO escribas explicaciones antes o después del JSON.
+SALIDA ÚNICA. Solo debe existir un único array [] conteniendo los objetos con sus respectivas claves y valores.
 Tu respuesta completa debe ser SOLO el array JSON, sin nada más.`;
     
     // Llamar al modelProvider para obtener recomendaciones

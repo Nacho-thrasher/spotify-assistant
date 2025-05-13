@@ -217,8 +217,56 @@ async function processMessage(message, playbackContext = null, userId = 'anonymo
       }
       
       try {
-        // Intentar parsear la respuesta como JSON
-        const parsedResponse = JSON.parse(responseContent);
+        // Limpiar la respuesta antes de intentar parsearla
+        let cleanResponse = responseContent.trim();
+        
+        // Si la respuesta comienza con '(' y termina con ')', intenta extraer el JSON dentro
+        if (cleanResponse.startsWith('(') && cleanResponse.endsWith(')')) {
+          cleanResponse = cleanResponse.substring(1, cleanResponse.length - 1).trim();
+        }
+        
+        // Eliminar líneas de stacktraces que puedan estar contaminando
+        cleanResponse = cleanResponse.replace(/\s+at\s+[\w\.]+\s?\([^)]+\)/g, "");
+        cleanResponse = cleanResponse.replace(/\s+at\s+async\s+[^\n]+/g, "");
+        
+        // Intentar encontrar el objeto JSON dentro de texto potencialmente contaminado
+        const jsonStartIndex = cleanResponse.indexOf('{');
+        const jsonEndIndex = cleanResponse.lastIndexOf('}') + 1;
+        
+        if (jsonStartIndex !== -1 && jsonEndIndex !== -1 && jsonEndIndex > jsonStartIndex) {
+          console.log('Detectado posible objeto JSON entre los índices:', jsonStartIndex, jsonEndIndex);
+          let jsonCandidate = cleanResponse.substring(jsonStartIndex, jsonEndIndex);
+          
+          // Limpieza adicional si hay texto entre propiedades JSON
+          jsonCandidate = jsonCandidate.replace(/"\s*:\s*"[^"]+"\s+[^\{\}\[\],:"]+\s+"[^"]+"\s*:/g, function(match) {
+            const colonPos = match.indexOf(':');
+            const lastQuotePos = match.lastIndexOf('"');
+            return match.substring(0, colonPos + 1) + ' ' + match.substring(lastQuotePos);
+          });
+          
+          // Intentar parsear el objeto JSON limpio
+          try {
+            const parsedResponse = JSON.parse(jsonCandidate);
+            console.log('✨ Éxito al parsear JSON después de limpieza');
+            
+            // Registrar la interacción para aprendizaje (asíncrono, no bloqueante)
+            userFeedback.logInteraction({
+              userId,
+              userMessage: message,
+              detectedAction: parsedResponse.action,
+              parameters: parsedResponse.parameters,
+              successful: true,
+              model: modelProvider.getCurrentModel()
+            }).catch(err => console.error('Error al registrar interacción:', err));
+            
+            return parsedResponse;
+          } catch (innerParseError) {
+            console.warn('No se pudo parsear el JSON candidato después de limpieza:', innerParseError.message);
+          }
+        }
+        
+        // Si el objeto JSON no se pudo extraer, intentar con la respuesta original
+        const parsedResponse = JSON.parse(responseContent);  
         
         // Registrar la interacción para aprendizaje (asíncrono, no bloqueante)
         userFeedback.logInteraction({

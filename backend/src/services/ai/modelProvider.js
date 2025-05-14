@@ -24,6 +24,23 @@ const openRouter = OPENROUTER_API_KEY
 
 // Definir modelos por nivel (de más capaz a menos capaz)
 const modelTiers = {
+  free: [
+    'google/gemini-2.5-pro-exp-03-25',
+    'google/gemini-2.0-flash-exp:free',
+    'meta-llama/llama-4-scout:free',
+    'qwen/qwen3-0.6b-04-28:free',
+    'deepseek/deepseek-prover-v2:free',
+    'microsoft/mai-ds-r1:free',
+    'microsoft/phi-4-reasoning-plus:free',
+    'nousresearch/deephermes-3-mistral-24b-preview:free',
+    'qwen/qwen3-8b:free',
+    'qwen/qwen3-14b:free',
+    // mantén los anteriores
+    'nousresearch/nous-hermes-2-mixtral-8x7b-dpo',
+    'openchat/openchat-7b',
+    'undi95/toppy-m-7b',
+    'huggingfaceh4/zephyr-7b-beta'
+  ],
   premium: [
     'openai/gpt-4o',
     'anthropic/claude-3-opus-20240229',
@@ -41,22 +58,11 @@ const modelTiers = {
     'openai/gpt-3.5-turbo',
     'google/gemini-1.0-flash',
     'mistralai/mistral-7b-instruct'
-  ],
-  free: [
-    'microsoft/phi-4-reasoning-plus:free',
-    'nousresearch/deephermes-3-mistral-24b-preview:free',
-    'qwen/qwen3-8b:free',
-    'qwen/qwen3-14b:free',
-    // mantén los anteriores
-    'nousresearch/nous-hermes-2-mixtral-8x7b-dpo',
-    'openchat/openchat-7b',
-    'undi95/toppy-m-7b',
-    'huggingfaceh4/zephyr-7b-beta'
   ]
 };
 
 // Estado actual de los modelos
-let currentTier = 'premium'; // Comenzar con el nivel premium
+let currentTier = 'free'; // Comenzar con el nivel premium
 let failedModels = new Set();
 let usageStats = {};
 
@@ -82,7 +88,7 @@ function getNextAvailableModel() {
   if (currentIndex < tiers.length - 1) {
     // Hay un nivel inferior disponible
     currentTier = tiers[currentIndex + 1];
-    console.log(`⚠️ Bajando al nivel ${currentTier} de modelos`);
+    console.warn(`⚠️ Bajando al nivel ${currentTier} de modelos`);
     failedModels = new Set(); // Reiniciar los fallos para el nuevo nivel
     return getNextAvailableModel();
   }

@@ -7,7 +7,7 @@ const { OpenAI } = require('openai');
 require('dotenv').config();
 
 // Configuración de OpenRouter
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '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';
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
 // Inicializar cliente de OpenRouter (compatible con OpenAI SDK)

@@ -25,7 +25,6 @@ const openRouter = OPENROUTER_API_KEY
 // Definir modelos por nivel (de más capaz a menos capaz)
 const modelTiers = {
   free: [
-    'google/gemini-2.5-pro-exp-03-25',
     'google/gemini-2.0-flash-exp:free',
     'meta-llama/llama-4-scout:free',
     'qwen/qwen3-0.6b-04-28:free',

@@ -72,7 +72,7 @@ function initializeSocketServer(httpServer) {
   // Configuración con CORS para desarrollo
   const io = new Server(httpServer, {
     cors: {
-      origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+      origin: process.env.FRONTEND_URL || 'https://spotify-assistant-front.vercel.app',
       methods: ['GET', 'POST'],
       credentials: true
     },

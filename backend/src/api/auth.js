@@ -11,7 +11,7 @@ const spotifyManager = require('../services/spotify/spotifyManager');
 router.get('/login', (req, res) => {
   // Obtener URL de redirección personalizada (si existe)
   const redirectUri = req.query.redirect_uri;
-  
+  console.log(`🚀 URL de redirección personalizada: ${redirectUri}`);
   // Guardar en sesión para usarla después del callback
   if (redirectUri) {
     req.session = req.session || {};
@@ -48,7 +48,7 @@ router.get('/callback', async (req, res) => {
     // Intercambiar código por tokens
     const data = await spotifyManager.authorizationCodeGrant(code);
     const { access_token, refresh_token, expires_in } = data.body;
-    
+    console.log('Token obtenido correctamente. Expira en:', expires_in, 'segundos');
     // Crear una instancia temporal de SpotifyAPI para obtener el perfil de usuario
     const tempSpotifyApi = await spotifyManager.createTempInstance(access_token);
     
@@ -71,12 +71,8 @@ router.get('/callback', async (req, res) => {
     });
     
     // Guardar tokens asociados al ID real de Spotify (no al ID generado localmente)
-    await spotifyManager.setTokensForUser(spotifyUserId, access_token, refresh_token, expires_in);
-    
-    // En una aplicación real, aquí deberías:
-    // 1. Guardar tokens en una base de datos asociados al usuario
-    // 2. Crear una sesión o JWT para la autenticación del cliente
-    // 3. Manejar la expiración y refresco de tokens
+    const tokenSaveResult = await spotifyManager.setTokensForUser(spotifyUserId, access_token, refresh_token, expires_in);
+    console.log('Tokens guardados correctamente:', tokenSaveResult);
     
     // Determinar la URL de redirección en este orden de prioridad:
     // 1. El parámetro redirect_to en la URL de callback
@@ -85,6 +81,7 @@ router.get('/callback', async (req, res) => {
     // 4. El valor predeterminado (http://localhost:3000)
     // URL hardcodeada para producción (la nueva URL del frontend)
     const isProduction = process.env.NODE_ENV === 'production';
+    console.log(`🚀 Entorno: ${process.env.NODE_ENV}`);
     let frontendUrl = isProduction 
       ? 'https://spotify-assistant-front.vercel.app' 
       : (process.env.FRONTEND_URL || 'http://localhost:3000');
@@ -94,6 +91,17 @@ router.get('/callback', async (req, res) => {
       console.log(`🔸 Usando redirect_to de la URL: ${redirect_to}`);
       frontendUrl = redirect_to;
     }
+
+    // Verificar que los tokens se guardaron correctamente
+    if (tokenSaveResult !== true && tokenSaveResult.error) {
+      console.error('Error al guardar tokens:', tokenSaveResult);
+      return res.redirect(`${frontendUrl}?error=error_saving_tokens&message=${encodeURIComponent(tokenSaveResult.message || 'Error al guardar tokens')}`);
+    }
+    // En una aplicación real, aquí deberías:
+    // 1. Guardar tokens en una base de datos asociados al usuario
+    // 2. Crear una sesión o JWT para la autenticación del cliente
+    // 3. Manejar la expiración y refresco de tokens
+    
     // 2. Prioridad: Custom redirect from session
     else if (req.session && req.session.customRedirectUri) {
       console.log(`🔸 Usando redirect de sesión: ${req.session.customRedirectUri}`);
@@ -107,24 +115,27 @@ router.get('/callback', async (req, res) => {
   } catch (error) {
     console.error('Error durante la autenticación:', error);
     
-    // Mejorar el manejo del error para obtener información más detallada
-    let errorMessage = error.message || 'Error desconocido';
+    // Procesar el error para asegurar que sea serializable
+    let errorMessage = 'Error desconocido durante la autenticación';
     
-    // Si el error viene de Spotify API, puede tener una estructura específica
     if (error.body && error.body.error_description) {
       errorMessage = error.body.error_description;
     } else if (error.body && error.body.error) {
-      errorMessage = typeof error.body.error === 'string' 
-        ? error.body.error 
-        : JSON.stringify(error.body.error);
+      errorMessage = typeof error.body.error === 'string' ? error.body.error : JSON.stringify(error.body.error);
+    } else if (error.message) {
+      errorMessage = error.message;
+    } else if (typeof error === 'object') {
+      try {
+        errorMessage = JSON.stringify(error);
+      } catch (e) {
+        errorMessage = 'Error no serializable';
+      }
     }
     
     console.error('Mensaje de error detallado:', errorMessage);
     
-    res.status(400).json({ 
-      error: 'Error durante la autenticación', 
-      message: errorMessage 
-    });
+    // Redirigir al frontend con mensaje de error
+    return res.redirect(`${frontendUrl}?error=auth_error&message=${encodeURIComponent(errorMessage)}`);
   }
 });
 

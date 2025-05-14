@@ -146,30 +146,34 @@ async function getRecommendationsFromAI(context) {
     
     prompt += `
 
-INSTRUCCIONES ESTRICTAS FORMATO DE RESPUESTA OBLIGATORIO
+    ⚠️ INSTRUCCIONES ESTRICTAS: FORMATO DE RESPUESTA OBLIGATORIO ⚠️
 
-Debes responder EXCLUSIVAMENTE con un array JSON válido, siguiendo ESTRÍCTAMENTE este formato y sin ningún texto adicional antes o después:
-[
-  { "song": "Nombre de Canción 1", "artist": "Nombre de Artista 1" },
-  { "song": "Nombre de Canción 2", "artist": "Nombre de Artista 2" },
-  { "song": "Nombre de Canción 3", "artist": "Nombre de Artista 3" },
-  { "song": "Nombre de Canción 4", "artist": "Nombre de Artista 4" },
-  { "song": "Nombre de Canción 5", "artist": "Nombre de Artista 5" }
-]
+    Debes responder EXCLUSIVAMENTE con un array JSON válido. NO DEBES INCLUIR NINGÚN OTRO TEXTO.
 
-REGLAS CRÍTICAS:
-Formato válido JSON. Usa corchetes [] para el array, y dentro, objetos separados con llaves {}. Cada objeto debe tener exactamente dos claves: "song" y "artist"
-ES EXTREMADAMENTE IMPORTANTE que uses el formato de array con corchetes [] y cada elemento como un objeto separado con llaves { }.
-No repitas claves dentro de un mismo objeto. Por ejemplo, esto es inválido: { "song": "X", "artist": "Y", "song": "Z", "artist": "W" }.
-NO AÑADAS TEXTO FUERA DEL JSON. SOLO EL ARRAY JSON Y NADA MÁS.
-NO AÑADAS NINGÚN TEXTO. Ni antes ni después del JSON. Ni comentarios, ni explicaciones, ni frases como “Aquí tienes” o “Te recomiendo”.
-NO escribas frases como "Aquí tienes" o "Estas son mis recomendaciones".
-NO escribas explicaciones antes o después del JSON.
-SALIDA ÚNICA. Solo debe existir un único array [] conteniendo los objetos con sus respectivas claves y valores.
-Tu respuesta completa debe ser SOLO el array JSON, sin nada más.`;
+    🎯 FORMATO ÚNICO PERMITIDO (EJEMPLO):
+    [
+      { "song": "Nombre de Canción 1", "artist": "Nombre de Artista 1" },
+      { "song": "Nombre de Canción 2", "artist": "Nombre de Artista 2" },
+      { "song": "Nombre de Canción 3", "artist": "Nombre de Artista 3" },
+      { "song": "Nombre de Canción 4", "artist": "Nombre de Artista 4" },
+      { "song": "Nombre de Canción 5", "artist": "Nombre de Artista 5" }
+    ]
+
+    📌 REGLAS CRÍTICAS:
+
+    1. RESPUESTA EN FORMATO JSON VÁLIDO, sin texto adicional.
+    2. SOLO un array con objetos que tengan **exactamente dos claves**: "song" y "artist".
+    3. NO incluyas texto antes, después ni fuera del JSON. Nada de frases como “Aquí tienes” o “Estas son mis recomendaciones”.
+    4. NO uses etiquetas como \`\`\`, “json:”, ni ningún wrapper.
+    5. NO repitas claves dentro de un mismo objeto.
+    6. NO envíes más de un array.
+
+    🚫 CUALQUIER TEXTO FUERA DEL ARRAY JSON INVALIDARÁ LA RESPUESTA.
+
+    `;
     
     // Llamar al modelProvider para obtener recomendaciones
-    console.log('🧠 Generando recomendaciones con modelo de IA...');
+    console.log('🧠 Generando recomendaciones con modelo de IA...', prompt);
     const response = await modelProvider.generateResponse('', prompt);
     
     // Verificar que hay respuesta
@@ -400,5 +404,6 @@ async function findTracksInSpotify(spotifyApi, recommendations) {
 }
 
 module.exports = {
-  getAIRecommendations
+  getAIRecommendations,
+  findTracksInSpotify
 };

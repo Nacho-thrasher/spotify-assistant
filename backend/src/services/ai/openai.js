@@ -9,6 +9,7 @@ const modelProvider = require('./modelProvider');
  * Sistema de instrucciones base para el modelo - mejorado con contexto
  */
 const getSystemPrompt = (context) => {
+  console.log('🤖 Contexto de reproducción aqui:', context);
   // Construir un mensaje de contexto basado en la reproducción actual
   let contextMessage = '';
   
@@ -66,6 +67,43 @@ Eres un asistente musical útil, amigable y eficiente. Tu objetivo es ayudar al 
 ## Contexto Actual
 ${contextMessage}
 
+## CRÍTICO: Distinción entre Acciones Play y Recommendations
+- SIEMPRE usa la acción "recommendations" (no "play" ni "search") cuando el usuario pide:
+  * "música similar a..." o "similar a..."
+  * "recomendaciones de..."
+  * "recomiéndame canciones como..."
+  * "más canciones como esta"
+  * "canciones parecidas a..."
+  * "algo que suene como..."
+  * Cualquier petición que busque SUGERENCIAS, no reproducción inmediata
+
+- SOLO usa la acción "play" cuando el usuario quiere REPRODUCIR música inmediatamente:
+  * "reproducir..." o "pon..."
+  * "quiero escuchar..."
+  * "toca..." o "escuchar..."
+  * Peticiones explícitas de reproducción inmediata
+
+## Estructura para Recomendaciones
+Cuando uses la acción "recommendations", SIEMPRE incluye:
+1. Al menos 3-5 canciones recomendadas
+2. Cada canción debe tener "song" y "artist"
+3. Un campo "basedOn" que explique en qué se basan las recomendaciones
+4. Un mensaje explicativo que mencione por qué recomendaste estas canciones
+
+## Manejo de Ambigüedades
+Si la petición del usuario es ambigua entre reproducir o recomendar:
+- Ante la duda, usa "recommendations" cuando mencione términos como "similar", "como", "parecido", etc.
+- Usa "play" solo cuando esté claro que quiere reproducción inmediata.
+
+## Ejemplos de Entradas y Respuestas
+
+- Usuario: "música similar a toxicity system of a down"
+  Respuesta CORRECTA: { "action": "recommendations", "parameters": { "songs": [{"song": "Chop Suey!", "artist": "System of a Down"}, ...], "basedOn": "Toxicity de System of a Down" }, "message": "..." }
+  Respuesta INCORRECTA: { "action": "play", "parameters": { "query": "metal alternativo similar a System of a Down" }, "message": "..." }
+
+- Usuario: "reproduce rock alternativo"
+  Respuesta CORRECTA: { "action": "play", "parameters": { "query": "rock alternativo" }, "message": "..." }
+
 ## Recomendaciones Inteligentes
 - Si el usuario pide "más como esto", sugiere contenido similar a lo que se está reproduciendo
 - Utiliza la canción o artista actual como referencia cuando sea útil
@@ -73,7 +111,6 @@ ${contextMessage}
 - Basarse en la cola de reproducción para hacer sugerencias cuando tenga sentido
 - Sé proactivo ofreciendo información relevante sobre artistas o canciones cuando corresponda
 - Si detectas que el usuario está corrigiendo una acción anterior, aprende de esa corrección
-
 
 ## Instrucciones Generales
 1. Responde de forma concisa, conversacional y centrada en música
@@ -116,7 +153,7 @@ Debes devolver un objeto JSON con los siguientes campos:
 
 { \"action\": \"queue\", \"parameters\": { \"queries\": [\"Thunderstruck\", \"Back in Black\"] }, \"message\": \"He añadido Thunderstruck y Back in Black a la cola de reproducción.\" }
 
-{ \"action\": \"recommendations\", \"parameters\": { \"basedOn\": \"current\" }, \"message\": \"Basándome en lo que estás escuchando, te recomiendo estos temas similares que creo que te gustarán.\" }
+{ \"action\": \"recommendations\", \"parameters\": { \"songs\": [{ \"artist\": \"Led Zeppelin\", \"song\": \"Stairway to Heaven\" }, { \"artist\": \"Pink Floyd\", \"song\": \"Comfortably Numb\" }, { \"artist\": \"The Doors\", \"song\": \"Riders on the Storm\" }, { \"artist\": \"Deep Purple\", \"song\": \"Smoke on the Water\" }], \"basedOn\": \"canciones de rock clásico\" }, \"message\": \"Aquí tienes algunas recomendaciones de rock clásico que seguramente te gustarán por su instrumental elaborado y sus solos de guitarra.\" }
 
 ## Manejo de Correcciones
 Si el usuario corrige una acción anterior (por ejemplo, "No, quería añadir X a la cola, no reproducirlo"), reconoce el error, aplica la corrección y aprende para futuras interacciones.
@@ -124,7 +161,6 @@ Si el usuario corrige una acción anterior (por ejemplo, "No, quería añadir X 
 { \"action\": \"queue\", \"parameters\": { \"query\": \"Sweet Child O Mine\" }, \"message\": \"Entendido, he añadido Sweet Child O Mine a la cola en lugar de reproducirla directamente.\" }
 `;
 };
-
 /**
  * Histórico de comandos del usuario para contexto
  */
@@ -165,7 +201,7 @@ async function processMessage(message, playbackContext = null, userId = 'anonymo
   try {
     // Preparar contexto enriquecido para el prompt
     let context = { history: commandHistory };
-    
+    console.log('Contexto de reproducción:', playbackContext);
     // Añadir contexto de reproducción si está disponible
     if (playbackContext) {
       try {
@@ -182,11 +218,27 @@ async function processMessage(message, playbackContext = null, userId = 'anonymo
     try {
       console.log('🤖 Procesando mensaje con IA usando contexto enriquecido');
       
-      // Generar el prompt con el contexto actual
-      const systemPrompt = getSystemPrompt(context);
+      // Generar el prompt
+      console.log('✨ PROCESAMIENTO DE MENSAJE ✨');
+      console.log('💬 ENTRADA:', message);
       
-      // Obtener respuesta del proveedor de modelos
-      const responseContent = await modelProvider.generateResponse(systemPrompt, message);
+      // Detectar si es una solicitud de recomendaciones
+      const isRecommendationRequest = 
+        message.toLowerCase().includes('recomend') || 
+        message.toLowerCase().includes('similar') || 
+        message.toLowerCase().includes('más como') ||
+        message.toLowerCase().includes('que te parezcan a');
+      
+      // Procesar mensaje con OpenRouter
+      console.log('🤗 Enviando mensaje a modelo de IA...');
+      
+      // Intentamos con cada modelo disponible, comenzando por el principal
+      // Pasamos el flag isRecommendationRequest para activar el esquema JSON apropiado
+      const responseContent = await modelProvider.generateResponse(
+        getSystemPrompt(context), 
+        message,
+        { isRecommendationRequest }
+      );
       
       // Log detallado de la respuesta
       console.log('✨ RESPUESTA DEL MODELO:');

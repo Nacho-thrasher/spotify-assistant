@@ -5,6 +5,7 @@ const openaiService = require('../services/ai/openai');
 const userHistory = require('../services/history/userHistory');
 const taskQueue = require('../services/queue/taskQueue');
 const { processRecommendations } = require('./recommendations');
+const { getAIRecommendations, findTracksInSpotify } = require('./ai_recommendations');
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 /**
@@ -65,21 +66,55 @@ router.post('/message', async (req, res) => {
           // Obtener la canción actual
           const currentTrack = await spotifyApi.getMyCurrentPlayingTrack();
           
+          // Verificar que existe información de la canción actual
+          if (currentTrack && currentTrack.body && currentTrack.body.item) {
+            console.log('✅ Canción actual detectada:');
+            console.log('   • Nombre:', currentTrack.body.item.name);
+            console.log('   • Artista:', currentTrack.body.item.artists[0].name);
+            console.log('   • Album:', currentTrack.body.item.album.name);
+            console.log('   • Duración:', currentTrack.body.item.duration_ms / 1000 + ' segundos');
+            console.log('   • Estado:', currentTrack.body.is_playing ? 'Reproduciendo' : 'Pausado');
+          } else {
+            console.log('⚠️ No se detectó canción actualmente reproduciendo (player inactivo o en pausa)');
+          }
           // Obtener la cola de reproducción
-          const queueResponse = await fetch(`${process.env.API_URL || 'http://localhost:8080'}/api/user/queue`, {
+          const queueResponse = await fetch(`${process.env.API_URL || 'https://spotify-assistant-production.up.railway.app'}/api/user/queue`, {
             headers: {
               'Authorization': `Bearer ${accessToken}`
             }
           });
           
           if (queueResponse.ok) {
-            const queueData = await queueResponse.json();
+            let queueData = await queueResponse.json();
+            
+            // Importante: Si currentTrack tiene datos pero queueData.currentlyPlaying es null,
+            // actualizar el contexto de reproducción con la canción actual
+            if (currentTrack && currentTrack.body && currentTrack.body.item && 
+                (!queueData.currentlyPlaying || queueData.currentlyPlaying === null)) {
+              
+              console.log('🔄 Actualizando currentlyPlaying en contexto que venía null');
+              
+              // Crear objeto currentlyPlaying con la información de currentTrack
+              queueData.currentlyPlaying = {
+                name: currentTrack.body.item.name,
+                artist: currentTrack.body.item.artists[0].name,
+                album: currentTrack.body.item.album.name,
+                image: currentTrack.body.item.album.images[0]?.url,
+                duration_ms: currentTrack.body.item.duration_ms,
+                uri: currentTrack.body.item.uri,
+                id: currentTrack.body.item.id,
+                isPlaying: currentTrack.body.is_playing
+              };
+            }
+            
             playbackContext = queueData;
             
             console.log('💾 Contexto de reproducción cargado:');
             if (playbackContext.currentlyPlaying) {
               console.log(`   • Canción actual: ${playbackContext.currentlyPlaying.name} - ${playbackContext.currentlyPlaying.artist}`);
               console.log(`   • Estado: ${playbackContext.currentlyPlaying.isPlaying ? 'Reproduciendo' : 'Pausado'}`);
+            } else {
+              console.log('   • No hay canción actual (currentlyPlaying es null)');
             }
             console.log(`   • Canciones en cola: ${playbackContext.nextInQueue?.length || 0}`);
           }

@@ -7,7 +7,7 @@ const { OpenAI } = require('openai');
 require('dotenv').config();
 
 // Configuración de OpenRouter
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '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';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
 // Inicializar cliente de OpenRouter (compatible con OpenAI SDK)
@@ -25,8 +25,13 @@ const openRouter = OPENROUTER_API_KEY
 // Definir modelos por nivel (de más capaz a menos capaz)
 const modelTiers = {
   free: [
-    'google/gemini-2.0-flash-exp:free',
-    'meta-llama/llama-4-scout:free',
+    'google/gemma-3-4b-it:free',
+    'google/gemma-3-4b:free',
+    'meta-llama/llama-3.2-11b-vision-instruct:free',
+    'google/gemma-3-27b-it:free',
+    'deepseek/deepseek-chat:free',
+    'google/gemma-3-12b-it:free',
+    'google/gemma-3-12b:free',
     'qwen/qwen3-0.6b-04-28:free',
     'deepseek/deepseek-prover-v2:free',
     'microsoft/mai-ds-r1:free',
@@ -236,8 +241,10 @@ async function generateResponse(prompt, userMessage, options = {}) {
       const completion = await openRouter.chat.completions.create(requestConfig);
       
       // Éxito - devolver la respuesta
+      console.log('✅ Respuesta generada con éxito', completion.choices[0].message.content);
       return completion.choices[0].message.content;
     } catch (error) {
+      console.error('Error al generar respuesta:', error);
       attempts++;
       
       // Obtener el modelo actual

@@ -178,6 +178,7 @@ async function getRecommendationsFromAI(context) {
     
     // Verificar que hay respuesta
     if (!response) {
+      console.error('Error ia', response);
       throw new Error('No se recibió respuesta de la IA');
     }
     

@@ -4,6 +4,7 @@ const router = express.Router();
 const getSpotifyForRequest = require('../services/spotify/getSpotifyInstance');
 const userHistory = require('../services/history/userHistory'); // Importar userHistory
 const { EVENT_TYPES } = userHistory; // Importar EVENT_TYPES
+const { getAIRecommendations } = require('./ai_recommendations'); // Importar función para recomendaciones de IA
 
 // Constante para el ID de usuario por defecto durante desarrollo
 const DEFAULT_USER_ID = 'nacho';
@@ -1137,6 +1138,81 @@ router.post('/play-queue-item', async (req, res) => {
     console.error('Error al reproducir elemento de la cola:', error);
     res.status(error.statusCode || 500).json({
       error: 'Error al reproducir elemento de la cola', 
+      message: error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/user/recommendations/ai
+ * @desc    Obtener recomendaciones personalizadas generadas por IA
+ * @access  Private
+ */
+router.post('/recommendations/ai', async (req, res) => {
+  const { prompt } = req.body;
+  const userId = getUserIdSafe(req);
+
+  console.log(`📢 Solicitud de recomendaciones IA recibida`);
+  console.log(`   • Usuario: ${userId}`);
+  console.log(`   • Prompt: ${prompt}`);
+  
+  if (!prompt) {
+    return res.status(400).json({ 
+      error: 'Parámetro requerido', 
+      message: 'Se requiere especificar un prompt para las recomendaciones' 
+    });
+  }
+
+  try {
+    // Obtener instancia de SpotifyAPI para este usuario
+    const spotifyApi = await getSpotifyForRequest(req);
+    
+    // Obtener contexto de reproducción actual si está disponible
+    let playbackContext = null;
+    try {
+      const currentTrack = await spotifyApi.getMyCurrentPlayingTrack();
+      if (currentTrack && currentTrack.body && currentTrack.body.item) {
+        playbackContext = {
+          currentlyPlaying: {
+            name: currentTrack.body.item.name,
+            artist: currentTrack.body.item.artists[0].name,
+            album: currentTrack.body.item.album.name,
+            uri: currentTrack.body.item.uri,
+            isPlaying: currentTrack.body.is_playing
+          }
+        };
+      }
+    } catch (playbackError) {
+      console.warn('Error al obtener contexto de reproducción:', playbackError.message);
+      // Continuamos sin contexto
+    }
+
+    // Parámetros para las recomendaciones
+    const parameters = { query: prompt };
+    
+    // Obtener recomendaciones de IA
+    console.log(`🤖 Generando recomendaciones de IA para: "${prompt}"`);
+    const result = await getAIRecommendations(spotifyApi, parameters, playbackContext, userId);
+    
+    // Registrar en historial
+    try {
+      await userHistory.addToHistory(userId, EVENT_TYPES.RECOMMENDATION, {
+        prompt,
+        count: result.recommendations.length,
+        source: 'ai'
+      });
+    } catch (historyError) {
+      console.error('Error al registrar recomendación en historial:', historyError);
+    }
+    
+    // Devolver resultado
+    console.log(`✅ Recomendaciones generadas: ${result.recommendations.length}`);
+    return res.json(result);
+
+  } catch (error) {
+    console.error('Error al generar recomendaciones de IA:', error);
+    return res.status(500).json({
+      error: 'Error al generar recomendaciones',
       message: error.message
     });
   }

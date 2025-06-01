@@ -26,7 +26,7 @@ Asistente conversacional para Spotify que permite interactuar con la música med
 
 ## Ejecución en desarrollo
 
-### Backend:
+<!-- ### Backend: -->
 ```bash
 cd backend
 npm install

@@ -7,7 +7,7 @@ const { OpenAI } = require('openai');
 require('dotenv').config();
 
 // Configuración de OpenRouter
-const OPENROUTER_API_KEY = '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';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
 // Inicializar cliente de OpenRouter (compatible con OpenAI SDK)
@@ -24,25 +24,17 @@ const openRouter = OPENROUTER_API_KEY
 
 // Definir modelos por nivel (de más capaz a menos capaz)
 const modelTiers = {
-  premium: [
-    'openai/gpt-4o',
-    'anthropic/claude-3-opus-20240229',
-    'google/gemini-1.5-pro',
-    'meta-llama/llama-3-70b-instruct'
-  ],
-  standard: [
-    'anthropic/claude-3-sonnet-20240229',
-    'openai/gpt-4-turbo',
-    'google/gemini-1.0-pro',
-    'meta-llama/llama-3-8b-instruct'
-  ],
-  economic: [
-    'anthropic/claude-3-haiku-20240307',
-    'openai/gpt-3.5-turbo',
-    'google/gemini-1.0-flash',
-    'mistralai/mistral-7b-instruct'
-  ],
   free: [
+    'google/gemma-3-4b-it:free',
+    'google/gemma-3-4b:free',
+    'meta-llama/llama-3.2-11b-vision-instruct:free',
+    'google/gemma-3-27b-it:free',
+    'deepseek/deepseek-chat:free',
+    'google/gemma-3-12b-it:free',
+    'google/gemma-3-12b:free',
+    'qwen/qwen3-0.6b-04-28:free',
+    'deepseek/deepseek-prover-v2:free',
+    'microsoft/mai-ds-r1:free',
     'microsoft/phi-4-reasoning-plus:free',
     'nousresearch/deephermes-3-mistral-24b-preview:free',
     'qwen/qwen3-8b:free',
@@ -52,11 +44,29 @@ const modelTiers = {
     'openchat/openchat-7b',
     'undi95/toppy-m-7b',
     'huggingfaceh4/zephyr-7b-beta'
-  ]
+  ],
 };
+// premium: [
+//   'openai/gpt-4o',
+//   'anthropic/claude-3-opus-20240229',
+//   'google/gemini-1.5-pro',
+//   'meta-llama/llama-3-70b-instruct'
+// ],
+// standard: [
+//   'anthropic/claude-3-sonnet-20240229',
+//   'openai/gpt-4-turbo',
+//   'google/gemini-1.0-pro',
+//   'meta-llama/llama-3-8b-instruct'
+// ],
+// economic: [
+//   'anthropic/claude-3-haiku-20240307',
+//   'openai/gpt-3.5-turbo',
+//   'google/gemini-1.0-flash',
+//   'mistralai/mistral-7b-instruct'
+// ]
 
 // Estado actual de los modelos
-let currentTier = 'premium'; // Comenzar con el nivel premium
+let currentTier = 'free'; // Comenzar con el nivel premium
 let failedModels = new Set();
 let usageStats = {};
 
@@ -82,7 +92,7 @@ function getNextAvailableModel() {
   if (currentIndex < tiers.length - 1) {
     // Hay un nivel inferior disponible
     currentTier = tiers[currentIndex + 1];
-    console.log(`⚠️ Bajando al nivel ${currentTier} de modelos`);
+    console.warn(`⚠️ Bajando al nivel ${currentTier} de modelos`);
     failedModels = new Set(); // Reiniciar los fallos para el nuevo nivel
     return getNextAvailableModel();
   }
@@ -147,6 +157,7 @@ async function generateResponse(prompt, userMessage, options = {}) {
         type: "json_schema",
         schema: {
           type: "object",
+          additionalProperties: false,
           properties: {
             action: {
               type: "string",
@@ -157,6 +168,7 @@ async function generateResponse(prompt, userMessage, options = {}) {
             parameters: {
               type: "object",
               description: "Parámetros para la acción especificada",
+              additionalProperties: false,
               properties: {
                 // Parámetros para búsqueda y reproducción
                 query: {
@@ -222,12 +234,17 @@ async function generateResponse(prompt, userMessage, options = {}) {
         }
       };
       
+      // Agregar transformaciones para optimizar el rendimiento
+      requestConfig.transforms = ["middle-out"];
+      
       // Generar respuesta
       const completion = await openRouter.chat.completions.create(requestConfig);
-      
+      console.log('🤖 Generando respuesta con modelo de IA...', completion);
       // Éxito - devolver la respuesta
+      console.log('✅ Respuesta generada con éxito', completion.choices[0].message.content);
       return completion.choices[0].message.content;
     } catch (error) {
+      console.error('Error al generar respuesta:', error);
       attempts++;
       
       // Obtener el modelo actual

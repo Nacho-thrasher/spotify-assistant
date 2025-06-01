@@ -18,20 +18,18 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 // Definición de modelos
 const MODELS = {
-  // Groq models (priorizados por velocidad y eficiencia)
-  // Obtenidos de: https://console.groq.com/docs/models
-  GROQ: [
-    'llama3-8b-8192',           // Modelo más rápido y eficiente (8B parámetros)
-    'llama-3.1-8b-instant',      // Versión más reciente, optimizada para velocidad
-    'gemma-2-9b-it',             // Modelo ligero de Google
-    'llama-3.1-8b-instant'       // Segunda oportunidad si el primero falla
-  ],
-  // OpenRouter models (fallback)
+  // OpenRouter models
   OPENROUTER: [
-    'meta-llama/llama-3-8b-instruct',   // Versión más ligera primero
-    'openai/gpt-3.5-turbo',             // Más rápido que gpt-4
-    'google/gemini-pro',                // Alternativa estable
-    'anthropic/claude-instant-v1'       // Versión rápida de Claude
+    'openai/gpt-4o',
+    'anthropic/claude-3-opus-20240229',
+    'meta-llama/llama-3-70b-instruct',
+    'google/gemini-pro'
+  ],
+  // Groq models
+  GROQ: [
+    'llama3-8b-8192',        // Más rápido, bueno para tareas simples
+    'llama3-70b-8192',       // Más capacidades, mejor para tareas complejas
+    'mixtral-8x7b-32768'     // Bueno para contextos largos
   ]
 };
 
@@ -62,9 +60,6 @@ if (GROQ_API_KEY) {
   }
 }
 
-// Variable para almacenar el modelo utilizado más recientemente
-let currentModel = '';
-
 /**
  * Determina si hay proveedores de IA disponibles
  * @returns {boolean} - true si hay al menos un proveedor disponible
@@ -88,7 +83,6 @@ async function generateResponse(systemPrompt, userMessage, isRecommendationReque
     for (const model of MODELS.GROQ) {
       try {
         console.log(`🤖 Intentando con modelo Groq: ${model}`);
-        console.log(`🔍 Tipo de solicitud: ${isRecommendationRequest ? 'Recomendación' : 'Comando normal'}`);
         
         // Preparar mensajes para Groq
         const messages = [
@@ -102,18 +96,11 @@ async function generateResponse(systemPrompt, userMessage, isRecommendationReque
           model: model,
           temperature: isRecommendationRequest ? 0.9 : 0.7, // Mayor creatividad para recomendaciones
           max_tokens: isRecommendationRequest ? 800 : 500,
-          // Para recomendaciones, no forzamos formato JSON_OBJECT ya que esperamos un array
-          response_format: isRecommendationRequest ? undefined : { type: "json_object" }
+          response_format: { type: "json_object" }
         };
-        
-        // Solo log básico de la solicitud
-        console.log(`🤖 Enviando solicitud a Groq modelo: ${model}, tipo: ${isRecommendationRequest ? 'recomendación' : 'comando'}`);
         
         // Hacer la solicitud a Groq
         const completion = await groqClient.chat.completions.create(params);
-        
-        // Guardar el modelo utilizado
-        currentModel = model;
         
         // Extraer el contenido de la respuesta
         const responseContent = completion.choices[0].message.content;
@@ -121,11 +108,7 @@ async function generateResponse(systemPrompt, userMessage, isRecommendationReque
         
         return responseContent;
       } catch (error) {
-        console.error(`❌ Error con modelo Groq ${model}: ${error.message}`);
-        // Solo loggear código de error importante
-        if (error.code || error.status) {
-          console.error(`Error status: ${error.status || 'N/A'}, code: ${error.code || 'N/A'}`);
-        }
+        console.error(`❌ Error con modelo Groq ${model}:`, error.message);
         continue; // Intentar con el siguiente modelo de Groq
       }
     }
@@ -149,15 +132,11 @@ async function generateResponse(systemPrompt, userMessage, isRecommendationReque
           messages: messages,
           temperature: isRecommendationRequest ? 0.9 : 0.7,
           max_tokens: isRecommendationRequest ? 800 : 500,
-          // Para recomendaciones, no forzamos formato JSON_OBJECT ya que esperamos un array
-          response_format: isRecommendationRequest ? undefined : { type: "json_object" }
+          response_format: { type: "json_object" }
         };
         
         // Hacer la solicitud a OpenRouter
         const completion = await openRouterClient.chat.completions.create(params);
-        
-        // Guardar el modelo utilizado
-        currentModel = model;
         
         // Extraer el contenido de la respuesta
         const responseContent = completion.choices[0].message.content;
@@ -165,11 +144,7 @@ async function generateResponse(systemPrompt, userMessage, isRecommendationReque
         
         return responseContent;
       } catch (error) {
-        console.error(`❌ Error con modelo OpenRouter ${model}: ${error.message}`);
-        // Solo loggear código de error importante
-        if (error.code || error.status) {
-          console.error(`Error status: ${error.status || 'N/A'}, code: ${error.code || 'N/A'}`);
-        }
+        console.error(`❌ Error con modelo OpenRouter ${model}:`, error.message);
         continue; // Intentar con el siguiente modelo
       }
     }
@@ -205,21 +180,17 @@ function validateResponse(responseStr, isRecommendationRequest = false) {
       }
       
       // Validar que cada pista tenga los campos necesarios
-      let missingFields = 0;
       response.tracks = response.tracks.map((track, index) => {
         if (!track.name) {
+          console.warn(`⚠️ Pista ${index} sin nombre, asignando 'Canción desconocida'`);
           track.name = 'Canción desconocida';
-          missingFields++;
         }
         if (!track.artist) {
+          console.warn(`⚠️ Pista ${index} sin artista, asignando 'Artista desconocido'`);
           track.artist = 'Artista desconocido';
-          missingFields++;
         }
         return track;
       });
-      if (missingFields > 0) {
-        console.warn(`⚠️ ${missingFields} campos faltantes en las recomendaciones fueron completados automáticamente`);
-      }
     }
     
     // Verificar campos específicos para cada tipo de acción
@@ -249,6 +220,7 @@ function validateResponse(responseStr, isRecommendationRequest = false) {
     return response;
   } catch (error) {
     console.error('❌ Error al validar respuesta:', error.message);
+    console.error('Respuesta original:', responseStr);
     
     // Devolver una respuesta fallback simple
     return {
@@ -258,48 +230,8 @@ function validateResponse(responseStr, isRecommendationRequest = false) {
   }
 }
 
-/**
- * Devuelve el nombre del modelo utilizado en la última solicitud exitosa
- * @returns {string} Nombre del modelo o string vacío si no se ha utilizado ninguno
- */
-function getCurrentModel() {
-  return currentModel;
-}
-
-/**
- * Función para probar la conexión con Groq
- * @returns {Promise<boolean>} true si la conexión es exitosa, false en caso contrario
- */
-async function testGroqConnection() {
-  if (!groqClient) {
-    console.error('❌ Cliente Groq no inicializado');
-    return false;
-  }
-  
-  try {
-    // Prueba simple de conexión sin logs excesivos
-    const response = await groqClient.chat.completions.create({
-      messages: [{ role: 'user', content: 'Responde con "OK" si puedes leer este mensaje.' }],
-      model: 'llama3-8b-8192',
-      max_tokens: 10
-    });
-    
-    return true;
-  } catch (error) {
-    console.error('❌ Error al probar conexión con Groq:', error.message);
-    return false;
-  }
-}
-
-// Ejecutar prueba de conexión al iniciar sin mensajes innecesarios
-testGroqConnection().then(isConnected => {
-  console.log(`🔌 Groq: ${isConnected ? 'Conectado' : 'Desconectado'}`);
-});
-
 module.exports = {
   isAvailable,
   generateResponse,
-  validateResponse,
-  testGroqConnection,
-  getCurrentModel
+  validateResponse
 };

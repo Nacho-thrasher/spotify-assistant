@@ -173,9 +173,8 @@ async function getRecommendationsFromAI(context) {
     `;
     
     // Llamar al modelProvider para obtener recomendaciones
-    console.log('🧠 Generando recomendaciones con modelo de IA...', prompt);
-    const response = await modelProvider.generateResponse('', prompt);
-    
+    console.log('🤖 Generando recomendaciones con modelo de IA...');
+    const response = await modelProvider.generateResponse('', prompt, true);
     // Verificar que hay respuesta
     if (!response) {
       console.error('Error ia', response);
@@ -184,7 +183,6 @@ async function getRecommendationsFromAI(context) {
     
     // Limpiar la respuesta de caracteres no deseados y texto extra
     let cleanResponse = response.trim();
-    
     // Eliminar cualquier stacktrace o logs que puedan estar contaminando la respuesta
     cleanResponse = cleanResponse.replace(/\s+at\s+[\w\.]+\s?\([^)]+\)/g, "");
     cleanResponse = cleanResponse.replace(/\s+at\s+async\s+[^\n]+/g, "");
@@ -201,44 +199,40 @@ async function getRecommendationsFromAI(context) {
       cleanResponse = cleanResponse.replace(/\}\s+[^\{\}\[\]"]+\s+\{/g, "},{");
     }
     
-    // Log de depuración (limitado para evitar logs demasiado grandes)
-    const maxLogLength = 1000;
-    const originalResponseLog = response.length > maxLogLength ? 
-        response.substring(0, maxLogLength) + "... [truncado]" : response;
-    const cleanedResponseLog = cleanResponse.length > maxLogLength ? 
-        cleanResponse.substring(0, maxLogLength) + "... [truncado]" : cleanResponse;
-        
-    console.log('Respuesta recibida original:', originalResponseLog);
-    console.log('Respuesta limpiada para JSON:', cleanedResponseLog);
+    // Log simplificado de la respuesta recibida
+    console.log(`Respuesta IA recibida (${response.length} caracteres) y procesada para extraer JSON`);
     
     try {
       // Primero intentamos parsear como JSON
       const jsonResponse = JSON.parse(cleanResponse);
       
       // La respuesta puede venir en diferentes formatos, intentamos manejarlos todos
+      // Guardamos el formato detectado para un solo log al final
+      let formatoDetectado = '';
+      
       if (Array.isArray(jsonResponse)) {
         // Caso 1: Array directo de recomendaciones [{ song, artist }, ...]
-        console.log('   • Formato detectado: Array de objetos');
+        formatoDetectado = 'Array de objetos';
         return jsonResponse;
       } 
       else if (jsonResponse.recommendations && Array.isArray(jsonResponse.recommendations)) {
         // Caso 2: Objeto con clave 'recommendations' que contiene el array
-        console.log('   • Formato detectado: Objeto con clave "recommendations"');
+        formatoDetectado = 'Objeto con clave "recommendations"';
         return jsonResponse.recommendations;
       } 
       else if (jsonResponse.songs && Array.isArray(jsonResponse.songs)) {
         // Caso 3: Objeto con clave 'songs' que contiene el array
-        console.log('   • Formato detectado: Objeto con clave "songs"');
+        formatoDetectado = 'Objeto con clave "songs"';
         return jsonResponse.songs;
       } 
       else if (jsonResponse.tracks && Array.isArray(jsonResponse.tracks)) {
         // Caso 4: Objeto con clave 'tracks' que contiene el array
-        console.log('   • Formato detectado: Objeto con clave "tracks"');
+        formatoDetectado = 'Objeto con clave "tracks"';
         return jsonResponse.tracks;
       }
       else if (jsonResponse.song && jsonResponse.artist) {
         // Caso 5: Un único objeto con song y artist (en lugar de un array)
-        console.log('   • Formato detectado: Objeto único con song/artist');
+        formatoDetectado = 'Objeto único con song/artist';
         return [jsonResponse]; // Convertirlo en array para mantener consistencia
       }
       else if (typeof jsonResponse === 'object' && Object.keys(jsonResponse).length > 0) {
@@ -254,7 +248,7 @@ async function getRecommendationsFromAI(context) {
         }
         
         if (possibleRecommendations.length > 0) {
-          console.log('   • Formato detectado: Objeto con múltiples recomendaciones anidadas');
+          console.log(`Formato detectado: Objeto con ${possibleRecommendations.length} recomendaciones anidadas`);
           return possibleRecommendations;
         }
       }
@@ -284,8 +278,7 @@ async function getRecommendationsFromAI(context) {
       
       // Si ambos arrays tienen la misma longitud, podemos asumir que corresponden entre sí
       if (songs.length > 0 && songs.length === artists.length) {
-        console.log('   • Formato detectado: Objeto con claves duplicadas');
-        console.log(`   • Encontrados ${songs.length} pares song/artist`);
+        console.log(`Formato detectado: Objeto con claves duplicadas - ${songs.length} pares song/artist`);
         
         // Crear array de recomendaciones
         const rescuedRecommendations = [];
@@ -300,7 +293,7 @@ async function getRecommendationsFromAI(context) {
       }
       
       // Si llegamos aquí, no pudimos reconocer el formato de la respuesta JSON
-      console.error('Formato de respuesta de IA no reconocido:', jsonResponse);
+      console.error('Formato de respuesta de IA no reconocido');
       throw new Error('Formato de respuesta de IA no reconocido');
       
     } catch (parseError) {
@@ -342,7 +335,7 @@ async function getRecommendationsFromAI(context) {
       }
       
       if (recommendations.length > 0) {
-        console.log('   • Formato detectado: Texto plano con patrones de canción/artista');
+        console.log(`Formato detectado: Texto plano con ${recommendations.length} recomendaciones extraídas por regex`);
         return recommendations;
       }
       
@@ -364,6 +357,9 @@ async function getRecommendationsFromAI(context) {
  */
 async function findTracksInSpotify(spotifyApi, recommendations) {
   const tracks = [];
+  let networkErrors = 0;
+  const maxNetworkRetries = 2;
+  const networkRetryDelay = 1000; // 1 segundo entre reintentos
   
   // Buscar cada canción recomendada en Spotify
   for (const rec of recommendations) {
@@ -372,35 +368,96 @@ async function findTracksInSpotify(spotifyApi, recommendations) {
       const artistName = rec.artist || rec.by;
       
       if (!songName || !artistName) {
-        console.warn('❌ Recomendación sin nombre de canción o artista:', rec);
+        console.warn('❌ Recomendación sin nombre de canción o artista');
         continue;
       }
       
+      // Estrategia 1: Búsqueda exacta con sintaxis track: artist:
       const searchQuery = `track:${songName} artist:${artistName}`;
       console.log(`🔍 Buscando en Spotify: ${searchQuery}`);
       
-      const searchResults = await spotifyApi.search(searchQuery, ['track'], { limit: 1 });
+      try {
+        const searchResults = await spotifyApi.search(searchQuery, ['track'], { limit: 1 });
+        
+        if (searchResults?.body?.tracks?.items?.length > 0) {
+          tracks.push(searchResults.body.tracks.items[0]);
+          console.log(`✅ Encontrado: "${songName}" por ${artistName}`);
+          continue; // Continuamos con la siguiente recomendación
+        }
+      } catch (searchError) {
+        // Comprobar si es un error de red
+        if (searchError.code === 'ETIMEDOUT' || searchError.code === 'ENETUNREACH' || 
+            searchError.message?.includes('timeout') || searchError.message?.includes('network')) {
+          
+          networkErrors++;
+          if (networkErrors <= maxNetworkRetries) {
+            console.log(`⏳ Error de red, reintentando (${networkErrors}/${maxNetworkRetries})...`);
+            await new Promise(resolve => setTimeout(resolve, networkRetryDelay));
+            // Reducimos el índice para intentar de nuevo con la misma recomendación
+            continue;
+          } else {
+            console.error('❌ Máximo de reintentos de red alcanzado, omitiendo búsqueda');
+            // Continuamos con la siguiente recomendación
+            continue;
+          }
+        }
+      }
       
-      if (searchResults?.body?.tracks?.items?.length > 0) {
-        tracks.push(searchResults.body.tracks.items[0]);
-        console.log(`✅ Encontrado: "${songName}" por ${artistName}`);
-      } else {
-        // Si no encontramos con la búsqueda exacta, intentamos una búsqueda más genérica
+      // Estrategia 2: Búsqueda genérica sin sintaxis especial
+      try {
         const fallbackQuery = `${songName} ${artistName}`;
+        console.log(`🔍 Intentando búsqueda alternativa: ${fallbackQuery}`);
+        
         const fallbackResults = await spotifyApi.search(fallbackQuery, ['track'], { limit: 1 });
         
         if (fallbackResults?.body?.tracks?.items?.length > 0) {
           tracks.push(fallbackResults.body.tracks.items[0]);
           console.log(`✅ Encontrado (búsqueda genérica): "${fallbackResults.body.tracks.items[0].name}"`);
-        } else {
-          console.warn(`❌ No encontrado: "${songName}" por ${artistName}`);
+          continue;
         }
+      } catch (fallbackError) {
+        // Ignoramos errores en la búsqueda de respaldo para intentar la última estrategia
       }
+      
+      // Estrategia 3: Búsqueda solo por nombre de canción
+      try {
+        const lastResortQuery = songName;
+        console.log(`🔍 Último intento - solo nombre de canción: ${lastResortQuery}`);
+        
+        const lastResortResults = await spotifyApi.search(lastResortQuery, ['track'], { limit: 3 });
+        
+        if (lastResortResults?.body?.tracks?.items?.length > 0) {
+          // Intentamos encontrar una coincidencia parcial de artista
+          const potentialMatches = lastResortResults.body.tracks.items.filter(track => {
+            const trackArtists = track.artists.map(a => a.name.toLowerCase());
+            return trackArtists.some(a => a.includes(artistName.toLowerCase()) || 
+                                    artistName.toLowerCase().includes(a));
+          });
+          
+          if (potentialMatches.length > 0) {
+            tracks.push(potentialMatches[0]);
+            console.log(`✅ Encontrado (coincidencia parcial): "${potentialMatches[0].name}"`);
+          } else {
+            // Si no hay coincidencias de artista, usamos el primer resultado
+            tracks.push(lastResortResults.body.tracks.items[0]);
+            console.log(`✅ Encontrado (mejor esfuerzo): "${lastResortResults.body.tracks.items[0].name}"`);
+          }
+          continue;
+        }
+      } catch (lastResortError) {
+        // Ignoramos errores en el último intento
+      }
+      
+      console.warn(`❌ No se pudo encontrar: "${songName}" por ${artistName} después de múltiples intentos`);
+      
     } catch (error) {
-      console.warn(`❌ Error buscando "${rec.song || rec.name}" por ${rec.artist}:`, error.message);
+      // Error general en el proceso de búsqueda para esta recomendación
+      console.warn(`❌ Error procesando recomendación:`, error.message);
     }
   }
   
+  // Si no encontramos suficientes tracks, devolvemos lo que tenemos
+  console.log(`📢 Recomendaciones encontradas en Spotify: ${tracks.length}/${recommendations.length}`);
   return tracks;
 }
 
